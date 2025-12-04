@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+
+# Логи
+log/
+*.log
+
+# Временные файлы
+*.tmp
+*.temp
+*.swp
+*.bak
+*~
+
+# IDE
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Секретные данные
+.env
+*.key
+*.pem
+
+# Excel временные файлы
+~$*.xlsx
+~$*.xls
+
+# Входные и выходные данные (опционально, раскомментировать при необходимости)
+# IN/
+# OUT/
+
