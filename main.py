@@ -218,119 +218,32 @@ class ConfigManager:
         """
         configs = {}
         
-        # Конфигурация для группы OD
+        # Конфигурация для группы OD (ОперДоход)
         configs["OD"] = GroupConfig(
             name="OD",
             default_sheet="Sheet1",
             items=[
-                FileItem(
-                    key="OD_01",
-                    label="OD Январь",
-                    file_name="OD_01.xlsx",
-                    sheet=None,  # Используется default_sheet
-                    columns=[],  # Если пустой массив [], используются из defaults.columns
-                    filters={
-                        "drop_rules": [],  # Если пустой массив [], используются из defaults.drop_rules
-                        "in_rules": []  # Если пустой массив [], используются из defaults.in_rules
-                    }
-                ),
-                FileItem(
-                    key="OD_02",
-                    label="OD Февраль",
-                    file_name="OD_02.xlsx",
-                    sheet=None,
-                    columns=[],
-                    filters={"drop_rules": [], "in_rules": []}
-                ),
-                FileItem(
-                    key="OD_03",
-                    label="OD Март",
-                    file_name="OD_03.xlsx",
-                    sheet=None,
-                    columns=[],
-                    filters={"drop_rules": [], "in_rules": []}
-                ),
-                FileItem(
-                    key="OD_04",
-                    label="OD Апрель",
-                    file_name="OD_04.xlsx",
-                    sheet=None,
-                    columns=[],
-                    filters={"drop_rules": [], "in_rules": []}
-                ),
-                FileItem(
-                    key="OD_05",
-                    label="OD Май",
-                    file_name="OD_05.xlsx",
-                    sheet=None,
-                    columns=[],
-                    filters={"drop_rules": [], "in_rules": []}
-                ),
-                FileItem(
-                    key="OD_06",
-                    label="OD Июнь",
-                    file_name="OD_06.xlsx",
-                    sheet=None,
-                    columns=[],
-                    filters={"drop_rules": [], "in_rules": []}
-                ),
-                FileItem(
-                    key="OD_07",
-                    label="OD Июль",
-                    file_name="OD_07.xlsx",
-                    sheet=None,
-                    columns=[],
-                    filters={"drop_rules": [], "in_rules": []}
-                ),
-                FileItem(
-                    key="OD_08",
-                    label="OD Август",
-                    file_name="OD_08.xlsx",
-                    sheet=None,
-                    columns=[],
-                    filters={"drop_rules": [], "in_rules": []}
-                ),
-                FileItem(
-                    key="OD_09",
-                    label="OD Сентябрь",
-                    file_name="OD_09.xlsx",
-                    sheet=None,
-                    columns=[],
-                    filters={"drop_rules": [], "in_rules": []}
-                ),
-                FileItem(
-                    key="OD_10",
-                    label="OD Октябрь",
-                    file_name="OD_10.xlsx",
-                    sheet=None,
-                    columns=[],
-                    filters={"drop_rules": [], "in_rules": []}
-                ),
-                FileItem(
-                    key="OD_11",
-                    label="OD Ноябрь",
-                    file_name="OD_11.xlsx",
-                    sheet=None,
-                    columns=[],
-                    filters={"drop_rules": [], "in_rules": []}
-                ),
-                FileItem(
-                    key="OD_12",
-                    label="OD Декабрь",
-                    file_name="OD_12.xlsx",
-                    sheet=None,
-                    columns=[],
-                    filters={"drop_rules": [], "in_rules": []}
-                ),
+                FileItem(key="OD_01", label="OD Январь", file_name="M-1_OD.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
+                FileItem(key="OD_02", label="OD Февраль", file_name="M-2_OD.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
+                FileItem(key="OD_03", label="OD Март", file_name="M-3_OD.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
+                FileItem(key="OD_04", label="OD Апрель", file_name="M-4_OD.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
+                FileItem(key="OD_05", label="OD Май", file_name="M-5_OD.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
+                FileItem(key="OD_06", label="OD Июнь", file_name="M-6_OD.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
+                FileItem(key="OD_07", label="OD Июль", file_name="M-7_OD.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
+                FileItem(key="OD_08", label="OD Август", file_name="M-8_OD.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
+                FileItem(key="OD_09", label="OD Сентябрь", file_name="M-9_OD.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
+                FileItem(key="OD_10", label="OD Октябрь", file_name="M-10_OD.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
+                FileItem(key="OD_11", label="OD Ноябрь", file_name="M-11_OD.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
+                FileItem(key="OD_12", label="OD Декабрь", file_name="M-12_OD.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
             ],
             # Колонки по умолчанию: маппинг source (имя в Excel) -> alias (внутреннее имя)
             default_columns=[
-                {"alias": "tab_number", "source": "Табельный"},
-                {"alias": "tb", "source": "ТБ"},
-                {"alias": "gosb", "source": "ГОСБ"},
-                {"alias": "km", "source": "КМ"},
+                {"alias": "tab_number", "source": "Табельный номер"},
+                {"alias": "tb", "source": "Короткое ТБ"},
+                {"alias": "gosb", "source": "Полное ГОСБ"},
+                {"alias": "client_id", "source": "ИНН"},
                 {"alias": "fio", "source": "ФИО"},
-                {"alias": "indicator", "source": "Показатель"}
+                {"alias": "indicator", "source": "Факт"}
             ],
             # Правила удаления строк по умолчанию (drop_rules)
             # Если в items для файла drop_rules пустой массив [], используются эти правила
@@ -376,32 +289,32 @@ class ConfigManager:
             sheet_index=None
         )
         
-        # Конфигурация для группы RA
+        # Конфигурация для группы RA (Работающие Активы/кредиты)
         configs["RA"] = GroupConfig(
             name="RA",
             default_sheet="Sheet1",
             items=[
-                FileItem(key="RA_01", label="RA Январь", file_name="RA_01.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
-                FileItem(key="RA_02", label="RA Февраль", file_name="RA_02.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
-                FileItem(key="RA_03", label="RA Март", file_name="RA_03.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
-                FileItem(key="RA_04", label="RA Апрель", file_name="RA_04.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
-                FileItem(key="RA_05", label="RA Май", file_name="RA_05.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
-                FileItem(key="RA_06", label="RA Июнь", file_name="RA_06.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
-                FileItem(key="RA_07", label="RA Июль", file_name="RA_07.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
-                FileItem(key="RA_08", label="RA Август", file_name="RA_08.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
-                FileItem(key="RA_09", label="RA Сентябрь", file_name="RA_09.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
-                FileItem(key="RA_10", label="RA Октябрь", file_name="RA_10.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
-                FileItem(key="RA_11", label="RA Ноябрь", file_name="RA_11.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
-                FileItem(key="RA_12", label="RA Декабрь", file_name="RA_12.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
+                FileItem(key="RA_01", label="RA Январь", file_name="M-1_RA.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
+                FileItem(key="RA_02", label="RA Февраль", file_name="M-2_RA.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
+                FileItem(key="RA_03", label="RA Март", file_name="M-3_RA.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
+                FileItem(key="RA_04", label="RA Апрель", file_name="M-4_RA.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
+                FileItem(key="RA_05", label="RA Май", file_name="M-5_RA.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
+                FileItem(key="RA_06", label="RA Июнь", file_name="M-6_RA.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
+                FileItem(key="RA_07", label="RA Июль", file_name="M-7_RA.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
+                FileItem(key="RA_08", label="RA Август", file_name="M-8_RA.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
+                FileItem(key="RA_09", label="RA Сентябрь", file_name="M-9_RA.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
+                FileItem(key="RA_10", label="RA Октябрь", file_name="M-10_RA.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
+                FileItem(key="RA_11", label="RA Ноябрь", file_name="M-11_RA.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
+                FileItem(key="RA_12", label="RA Декабрь", file_name="M-12_RA.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
             ],
             # Колонки по умолчанию: маппинг source (имя в Excel) -> alias (внутреннее имя)
             default_columns=[
-                {"alias": "tab_number", "source": "Табельный"},
-                {"alias": "tb", "source": "ТБ"},
-                {"alias": "gosb", "source": "ГОСБ"},
-                {"alias": "km", "source": "КМ"},
+                {"alias": "tab_number", "source": "Табельный номер"},
+                {"alias": "tb", "source": "Короткое ТБ"},
+                {"alias": "gosb", "source": "Полное ГОСБ"},
+                {"alias": "client_id", "source": "ИНН"},
                 {"alias": "fio", "source": "ФИО"},
-                {"alias": "indicator", "source": "Показатель"}
+                {"alias": "indicator", "source": "Факт"}
             ],
             # Правила удаления строк по умолчанию (drop_rules)
             default_drop_rules=[
@@ -424,32 +337,32 @@ class ConfigManager:
             sheet_index=None
         )
         
-        # Конфигурация для группы PS
+        # Конфигурация для группы PS (Пассивы)
         configs["PS"] = GroupConfig(
             name="PS",
             default_sheet="Sheet1",
             items=[
-                FileItem(key="PS_01", label="PS Январь", file_name="PS_01.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
-                FileItem(key="PS_02", label="PS Февраль", file_name="PS_02.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
-                FileItem(key="PS_03", label="PS Март", file_name="PS_03.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
-                FileItem(key="PS_04", label="PS Апрель", file_name="PS_04.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
-                FileItem(key="PS_05", label="PS Май", file_name="PS_05.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
-                FileItem(key="PS_06", label="PS Июнь", file_name="PS_06.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
-                FileItem(key="PS_07", label="PS Июль", file_name="PS_07.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
-                FileItem(key="PS_08", label="PS Август", file_name="PS_08.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
-                FileItem(key="PS_09", label="PS Сентябрь", file_name="PS_09.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
-                FileItem(key="PS_10", label="PS Октябрь", file_name="PS_10.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
-                FileItem(key="PS_11", label="PS Ноябрь", file_name="PS_11.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
-                FileItem(key="PS_12", label="PS Декабрь", file_name="PS_12.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
+                FileItem(key="PS_01", label="PS Январь", file_name="M-1_PS.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
+                FileItem(key="PS_02", label="PS Февраль", file_name="M-2_PS.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
+                FileItem(key="PS_03", label="PS Март", file_name="M-3_PS.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
+                FileItem(key="PS_04", label="PS Апрель", file_name="M-4_PS.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
+                FileItem(key="PS_05", label="PS Май", file_name="M-5_PS.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
+                FileItem(key="PS_06", label="PS Июнь", file_name="M-6_PS.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
+                FileItem(key="PS_07", label="PS Июль", file_name="M-7_PS.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
+                FileItem(key="PS_08", label="PS Август", file_name="M-8_PS.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
+                FileItem(key="PS_09", label="PS Сентябрь", file_name="M-9_PS.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
+                FileItem(key="PS_10", label="PS Октябрь", file_name="M-10_PS.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
+                FileItem(key="PS_11", label="PS Ноябрь", file_name="M-11_PS.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
+                FileItem(key="PS_12", label="PS Декабрь", file_name="M-12_PS.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
             ],
             # Колонки по умолчанию: маппинг source (имя в Excel) -> alias (внутреннее имя)
             default_columns=[
-                {"alias": "tab_number", "source": "Табельный"},
-                {"alias": "tb", "source": "ТБ"},
-                {"alias": "gosb", "source": "ГОСБ"},
-                {"alias": "km", "source": "КМ"},
+                {"alias": "tab_number", "source": "Табельный номер"},
+                {"alias": "tb", "source": "Короткое ТБ"},
+                {"alias": "gosb", "source": "Полное ГОСБ"},
+                {"alias": "client_id", "source": "ИНН"},
                 {"alias": "fio", "source": "ФИО"},
-                {"alias": "indicator", "source": "Показатель"}
+                {"alias": "indicator", "source": "Факт"}
             ],
             # Правила удаления строк по умолчанию (drop_rules)
             default_drop_rules=[
@@ -1057,14 +970,44 @@ class FileProcessor:
         
         # Извлекаем номер месяца из имени файла
         def extract_month_number(file_name: str) -> int:
-            """Извлекает номер месяца из имени файла."""
-            numbers = re.findall(r'\d{2}', file_name)
-            if numbers:
-                # Берем последнее двузначное число и проверяем, что это месяц (1-12)
-                for num_str in reversed(numbers):
-                    num = int(num_str)
-                    if 1 <= num <= 12:
-                        return num
+            """
+            Извлекает номер месяца из имени файла.
+            
+            Поддерживает форматы:
+            - M-{номер}_{группа}.xlsx (например, M-1_RA.xlsx, M-12_OD.xlsx)
+            - {группа}_{номер}.xlsx (например, RA_01.xlsx, OD_12.xlsx)
+            - T-{номер} (например, T-11, T-0) - где T-11 = январь, T-0 = декабрь
+            
+            Args:
+                file_name: Имя файла
+                
+            Returns:
+                int: Номер месяца (1-12) или 0, если не удалось определить
+            """
+            # Паттерн для формата M-{номер}_{группа}.xlsx
+            match = re.search(r'M-(\d{1,2})_', file_name)
+            if match:
+                month = int(match.group(1))
+                if 1 <= month <= 12:
+                    return month
+            
+            # Паттерн для формата {группа}_{номер}.xlsx (например, RA_01.xlsx)
+            match = re.search(r'_(\d{2})\.', file_name)
+            if match:
+                month = int(match.group(1))
+                if 1 <= month <= 12:
+                    return month
+            
+            # Паттерн для формата T-{номер} (T-11 = январь, T-0 = декабрь)
+            match = re.search(r'T-(\d{1,2})', file_name)
+            if match:
+                t_value = int(match.group(1))
+                # Преобразуем T-11 -> 1 (январь), T-0 -> 12 (декабрь)
+                if 0 <= t_value <= 11:
+                    month = 12 - t_value
+                    if 1 <= month <= 12:
+                        return month
+            
             # Если не нашли, возвращаем 0 (низкий приоритет)
             return 0
         
