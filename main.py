@@ -242,6 +242,13 @@ class DefaultsConfig:
     
     # Метод обработки одинаковых значений: "skip" - 1,2,3,3,3,6,7 (пропуск мест) или "dense" - 1,2,3,3,3,4,5,6,7 (плотный)
     rank_tie_method: str = "skip"
+    
+    # Веса для расчета итогового ранга R_FIN
+    # Итоговый ранг = R: OD * weight_od + R: RA * weight_ra + R: PS * weight_ps
+    # Можно задать как число (0.33) или как строку с формулой ("1/3")
+    weight_od: float = 0.33
+    weight_ra: float = 0.33
+    weight_ps: float = 0.34
 
 
 @dataclass
@@ -572,7 +579,15 @@ class ConfigManager:
                 # Метод обработки одинаковых значений (rank_tie_method):
                 #   "skip" - пропуск мест: 1,2,3,3,3,6,7 (одинаковые имеют одно место, следующий пропускает места)
                 #   "dense" - плотный ранг: 1,2,3,3,3,4,5,6,7 (одинаковые имеют одно место, следующий идет по порядку)
-                rank_tie_method="skip"
+                rank_tie_method="skip",
+                
+                # Веса для расчета итогового ранга R_FIN
+                # Итоговый ранг = R: OD * weight_od + R: RA * weight_ra + R: PS * weight_ps
+                # Можно задать как число (0.33) или как строку с формулой ("1/3")
+                # Сумма весов должна быть равна 1.0 (или близка к 1.0)
+                weight_od=0.33,
+                weight_ra=0.33,
+                weight_ps=0.34
             )
         )
         
@@ -721,7 +736,15 @@ class ConfigManager:
                 # Метод обработки одинаковых значений (rank_tie_method):
                 #   "skip" - пропуск мест: 1,2,3,3,3,6,7 (одинаковые имеют одно место, следующий пропускает места)
                 #   "dense" - плотный ранг: 1,2,3,3,3,4,5,6,7 (одинаковые имеют одно место, следующий идет по порядку)
-                rank_tie_method="dense"
+                rank_tie_method="dense",
+                
+                # Веса для расчета итогового ранга R_FIN
+                # Итоговый ранг = R: OD * weight_od + R: RA * weight_ra + R: PS * weight_ps
+                # Можно задать как число (0.33) или как строку с формулой ("1/3")
+                # Сумма весов должна быть равна 1.0 (или близка к 1.0)
+                weight_od=0.33,
+                weight_ra=0.33,
+                weight_ps=0.34
             )
         )
 
@@ -1762,6 +1785,9 @@ class FileProcessor:
         # Рассчитываем ранги для каждой колонки с данными
         calculated_df = self._calculate_ranks(calculated_df, all_files_sorted, config_manager)
         
+        # Рассчитываем итоговые ранги R_FIN для каждого месяца
+        calculated_df = self._calculate_final_ranks(calculated_df, config_manager)
+        
         self.logger.info(f"Лист 'Расчеты': Подготовлено {len(calculated_df)} строк расчетных данных, колонок: {len(calculated_df.columns)}", "FileProcessor", "prepare_calculated_data")
         self.logger.info("=== Завершена подготовка расчетных данных для листа 'Расчеты' ===", "FileProcessor", "prepare_calculated_data")
         
@@ -2134,6 +2160,143 @@ class FileProcessor:
         self.logger.info("=== Завершен расчет рангов для листа 'Расчеты' ===", "FileProcessor", "_calculate_ranks")
         
         return calculated_df
+    
+    def _calculate_final_ranks(self, calculated_df: pd.DataFrame, config_manager) -> pd.DataFrame:
+        """
+        Рассчитывает итоговые ранги R_FIN для каждого месяца и определяет лучший месяц.
+        
+        R_FIN (M-X) = R: OD (M-X) * weight_od + R: RA (M-X) * weight_ra + R: PS (M-X) * weight_ps
+        
+        Args:
+            calculated_df: DataFrame с расчетными данными и рангами
+            config_manager: Менеджер конфигурации
+            
+        Returns:
+            DataFrame с добавленными колонками R_FIN и "Лучший месяц"
+        """
+        self.logger.info("=== Начало расчета итоговых рангов R_FIN ===", "FileProcessor", "_calculate_final_ranks")
+        
+        # Получаем веса из конфигурации (берем из первой группы, веса должны быть одинаковые для всех групп)
+        first_group = list(config_manager.groups.keys())[0] if config_manager.groups else "OD"
+        defaults = config_manager.get_group_config(first_group).defaults
+        weight_od = defaults.weight_od
+        weight_ra = defaults.weight_ra
+        weight_ps = defaults.weight_ps
+        
+        self.logger.info(f"Лист 'Расчеты': Веса для итогового ранга - OD: {weight_od}, RA: {weight_ra}, PS: {weight_ps}", "FileProcessor", "_calculate_final_ranks")
+        
+        # Базовые колонки
+        base_columns = ["Табельный", "ТБ", "ГОСБ", "ФИО"]
+        
+        # Находим все колонки с рангами
+        rank_columns = [col for col in calculated_df.columns if col.startswith("R:")]
+        
+        # Группируем ранги по месяцам
+        # Формат: "R: OD (M-1) [BANK, all, MAX]"
+        month_ranks = {}  # {month: {"OD": col_name, "RA": col_name, "PS": col_name}}
+        
+        for rank_col in rank_columns:
+            # Извлекаем группу и месяц из имени колонки
+            # Формат: "R: OD (M-1) [BANK, all, MAX]"
+            match = re.search(r'^R:\s+([A-Z]+)\s+\(M-(\d{1,2})\)', rank_col)
+            if match:
+                group = match.group(1)
+                month = int(match.group(2))
+                
+                if month not in month_ranks:
+                    month_ranks[month] = {}
+                
+                if group in ["OD", "RA", "PS"]:
+                    month_ranks[month][group] = rank_col
+        
+        # Сортируем месяцы
+        sorted_months = sorted(month_ranks.keys())
+        self.logger.info(f"Лист 'Расчеты': Найдено {len(sorted_months)} месяцев для расчета итоговых рангов: {sorted_months}", "FileProcessor", "_calculate_final_ranks")
+        
+        # Рассчитываем R_FIN для каждого месяца
+        r_fin_columns = []
+        for month in sorted_months:
+            r_fin_col_name = f"R_FIN (M-{month})"
+            r_fin_columns.append(r_fin_col_name)
+            
+            # Инициализируем итоговый ранг нулями
+            r_fin = pd.Series(0.0, index=calculated_df.index)
+            
+            # Суммируем взвешенные ранги для каждой группы
+            if "OD" in month_ranks[month] and month_ranks[month]["OD"] in calculated_df.columns:
+                od_rank = calculated_df[month_ranks[month]["OD"]].fillna(0)
+                r_fin += od_rank * weight_od
+                self.logger.info(f"Лист 'Расчеты': Месяц M-{month}: добавлен ранг OD (колонка '{month_ranks[month]['OD']}') с весом {weight_od}", "FileProcessor", "_calculate_final_ranks")
+            
+            if "RA" in month_ranks[month] and month_ranks[month]["RA"] in calculated_df.columns:
+                ra_rank = calculated_df[month_ranks[month]["RA"]].fillna(0)
+                r_fin += ra_rank * weight_ra
+                self.logger.info(f"Лист 'Расчеты': Месяц M-{month}: добавлен ранг RA (колонка '{month_ranks[month]['RA']}') с весом {weight_ra}", "FileProcessor", "_calculate_final_ranks")
+            
+            if "PS" in month_ranks[month] and month_ranks[month]["PS"] in calculated_df.columns:
+                ps_rank = calculated_df[month_ranks[month]["PS"]].fillna(0)
+                r_fin += ps_rank * weight_ps
+                self.logger.info(f"Лист 'Расчеты': Месяц M-{month}: добавлен ранг PS (колонка '{month_ranks[month]['PS']}') с весом {weight_ps}", "FileProcessor", "_calculate_final_ranks")
+            
+            # Добавляем колонку R_FIN
+            calculated_df[r_fin_col_name] = r_fin
+            
+            # Логируем статистику
+            non_zero_count = (r_fin != 0).sum()
+            if non_zero_count > 0:
+                min_r_fin = r_fin[r_fin != 0].min()
+                max_r_fin = r_fin[r_fin != 0].max()
+                self.logger.info(f"Лист 'Расчеты': R_FIN (M-{month}): ненулевых значений {non_zero_count}, диапазон: {min_r_fin:.2f} - {max_r_fin:.2f}", "FileProcessor", "_calculate_final_ranks")
+        
+        # Находим лучший месяц (месяц с наименьшим R_FIN)
+        # Если R_FIN = 0, не учитываем этот месяц
+        self.logger.info("Лист 'Расчеты': Поиск лучшего месяца для каждого КМ", "FileProcessor", "_calculate_final_ranks")
+        
+        best_month_series = pd.Series("", index=calculated_df.index, dtype=str)
+        
+        for idx in calculated_df.index:
+            # Собираем все ненулевые R_FIN для этого КМ
+            r_fin_values = {}
+            for r_fin_col in r_fin_columns:
+                if r_fin_col in calculated_df.columns:
+                    value = calculated_df.loc[idx, r_fin_col]
+                    if pd.notna(value) and value != 0:
+                        # Извлекаем номер месяца из имени колонки
+                        month_match = re.search(r'M-(\d{1,2})', r_fin_col)
+                        if month_match:
+                            month_num = int(month_match.group(1))
+                            r_fin_values[month_num] = value
+            
+            if len(r_fin_values) > 0:
+                # Находим минимальное значение R_FIN
+                min_r_fin = min(r_fin_values.values())
+                # Находим все месяцы с минимальным значением
+                best_months = [month for month, value in r_fin_values.items() if value == min_r_fin]
+                # Сортируем месяцы и формируем строку
+                best_months_sorted = sorted(best_months)
+                best_month_series.loc[idx] = ", ".join([f"M-{m}" for m in best_months_sorted])
+            else:
+                best_month_series.loc[idx] = ""
+        
+        # Добавляем колонку "Лучший месяц"
+        calculated_df["Лучший месяц"] = best_month_series
+        
+        # Логируем статистику
+        non_empty_count = (best_month_series != "").sum()
+        self.logger.info(f"Лист 'Расчеты': Определен лучший месяц для {non_empty_count} КМ", "FileProcessor", "_calculate_final_ranks")
+        
+        # Перемещаем колонки R_FIN и "Лучший месяц" в конец
+        cols = list(calculated_df.columns)
+        # Убираем R_FIN колонки и "Лучший месяц" из текущего списка
+        cols_without_r_fin = [c for c in cols if not c.startswith("R_FIN") and c != "Лучший месяц"]
+        # Добавляем R_FIN колонки и "Лучший месяц" в конец
+        new_cols = cols_without_r_fin + r_fin_columns + ["Лучший месяц"]
+        calculated_df = calculated_df[new_cols]
+        
+        self.logger.info(f"Лист 'Расчеты': Добавлено {len(r_fin_columns)} колонок R_FIN и колонка 'Лучший месяц'", "FileProcessor", "_calculate_final_ranks")
+        self.logger.info("=== Завершен расчет итоговых рангов R_FIN ===", "FileProcessor", "_calculate_final_ranks")
+        
+        return calculated_df
 
 
 # ============================================================================
@@ -2344,6 +2507,16 @@ class ExcelFormatter:
                         cell.alignment = Alignment(horizontal="right", vertical="center")
                     else:
                         cell.alignment = Alignment(horizontal="right", vertical="center")
+                # Если это колонка итогового ранга R_FIN - число с разделителем разрядов и двумя знаками после запятой
+                elif col_name and col_name.startswith("R_FIN"):
+                    if pd.notna(cell.value) and isinstance(cell.value, (int, float)):
+                        cell.number_format = number_format
+                        cell.alignment = Alignment(horizontal="right", vertical="center")
+                    else:
+                        cell.alignment = Alignment(horizontal="right", vertical="center")
+                # Если это колонка "Лучший месяц" - текстовое выравнивание
+                elif col_name == "Лучший месяц":
+                    cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
                 else:
                     # Для числовых колонок - числовой формат и выравнивание по правому краю
                     if pd.notna(cell.value) and isinstance(cell.value, (int, float)):
@@ -2465,6 +2638,18 @@ class ExcelFormatter:
                         worksheet.write(row_idx, col_idx, int(value), rank_format)
                     else:
                         worksheet.write(row_idx, col_idx, 0, rank_format)
+                elif col_name and col_name.startswith("R_FIN"):
+                    # Колонка итогового ранга R_FIN: число с разделителем разрядов и двумя знаками после запятой
+                    if pd.notna(value) and isinstance(value, (int, float)):
+                        worksheet.write(row_idx, col_idx, value, number_format)
+                    else:
+                        worksheet.write(row_idx, col_idx, 0, number_format)
+                elif col_name == "Лучший месяц":
+                    # Колонка "Лучший месяц": текстовый формат
+                    if pd.notna(value):
+                        worksheet.write(row_idx, col_idx, str(value), text_format)
+                    else:
+                        worksheet.write(row_idx, col_idx, '', text_format)
                 else:
                     # Числовые колонки
                     if pd.notna(value) and isinstance(value, (int, float)):
