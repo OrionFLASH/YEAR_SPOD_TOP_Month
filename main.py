@@ -1831,13 +1831,13 @@ class FileProcessor:
             
             self.logger.info(f"Лист 'Расчеты': Расчет ранга для колонки '{col_name}' - уровень: {rank_level}, условие: {condition_str}, порядок: {rank_order}, метод одинаковых: {rank_tie_method}", "FileProcessor", "_calculate_ranks")
             
-            # Получаем имена колонок для группировки
-            defaults = config_manager.get_group_config(group).defaults
-            tb_col = defaults.tb_column
-            gosb_col = defaults.gosb_column
-            
             # Создаем копию данных для расчета ранга
             rank_df = calculated_df[[col_name] + base_columns].copy()
+            
+            # ВАЖНО: Используем реальные имена колонок из base_columns, а не алиасы из конфигурации
+            # В base_columns определены: ["Табельный", "ТБ", "ГОСБ", "ФИО"]
+            tb_col = "ТБ"  # Реальное имя колонки в DataFrame
+            gosb_col = "ГОСБ"  # Реальное имя колонки в DataFrame
             
             # Применяем условие отсечки
             if rank_condition != "all" and rank_condition_value is not None:
@@ -1862,43 +1862,114 @@ class FileProcessor:
             rank_series = pd.Series(0, index=rank_df.index)
             
             # Группируем по уровню
+            # ВАЖНО: Используем groupby().groups для получения словаря групп, затем преобразуем в список индексов
+            # ВАЖНО: Используем реальные имена колонок "ТБ" и "ГОСБ" из base_columns
+            self.logger.info(f"Лист 'Расчеты': Расчет ранга для колонки '{col_name}' - уровень: {rank_level}, проверка колонок: ТБ={'ТБ' in rank_df.columns}, ГОСБ={'ГОСБ' in rank_df.columns}", "FileProcessor", "_calculate_ranks")
+            
             if rank_level == "BANK":
-                # По всему списку
-                groups = [rank_df.index]
+                # По всему списку - одна группа
+                groups_dict = {"BANK": rank_df.index}
+                self.logger.info(f"Лист 'Расчеты': Уровень BANK - одна группа, всего строк: {len(rank_df)}", "FileProcessor", "_calculate_ranks")
             elif rank_level == "TB":
-                # По ТБ
+                # По ТБ - группируем внутри каждого ТБ отдельно
                 if tb_col in rank_df.columns:
-                    groups = rank_df.groupby(tb_col).groups.values()
+                    groups_dict = rank_df.groupby(tb_col).groups
+                    unique_tb_count = len(groups_dict)
+                    self.logger.info(f"Лист 'Расчеты': Уровень TB - найдено {unique_tb_count} уникальных ТБ для группировки", "FileProcessor", "_calculate_ranks")
+                    # Логируем первые несколько ТБ для проверки
+                    tb_list = list(groups_dict.keys())[:5]
+                    for tb_val in tb_list:
+                        tb_rows = len(groups_dict[tb_val])
+                        self.logger.info(f"Лист 'Расчеты': ТБ '{tb_val}': {tb_rows} строк", "FileProcessor", "_calculate_ranks")
                 else:
-                    groups = [rank_df.index]
+                    self.logger.warning(f"Лист 'Расчеты': Уровень TB - колонка '{tb_col}' не найдена, используем одну группу", "FileProcessor", "_calculate_ranks")
+                    groups_dict = {"ALL": rank_df.index}
             elif rank_level == "GOSB":
-                # По ТБ и ГОСБ
+                # По ТБ и ГОСБ - группируем внутри каждой комбинации ТБ+ГОСБ отдельно
                 if tb_col in rank_df.columns and gosb_col in rank_df.columns:
-                    groups = rank_df.groupby([tb_col, gosb_col]).groups.values()
+                    # Группируем по комбинации ТБ и ГОСБ
+                    groups_dict = rank_df.groupby([tb_col, gosb_col]).groups
+                    unique_gosb_count = len(groups_dict)
+                    self.logger.info(f"Лист 'Расчеты': Уровень GOSB - найдено {unique_gosb_count} уникальных комбинаций ТБ+ГОСБ для группировки", "FileProcessor", "_calculate_ranks")
+                    # Логируем первые несколько комбинаций для проверки
+                    gosb_list = list(groups_dict.keys())[:5]
+                    for (tb_val, gosb_val) in gosb_list:
+                        gosb_rows = len(groups_dict[(tb_val, gosb_val)])
+                        self.logger.info(f"Лист 'Расчеты': ТБ '{tb_val}', ГОСБ '{gosb_val}': {gosb_rows} строк", "FileProcessor", "_calculate_ranks")
                 elif tb_col in rank_df.columns:
-                    groups = rank_df.groupby(tb_col).groups.values()
+                    self.logger.warning(f"Лист 'Расчеты': Уровень GOSB - колонка '{gosb_col}' не найдена, группируем только по ТБ", "FileProcessor", "_calculate_ranks")
+                    groups_dict = rank_df.groupby(tb_col).groups
                 else:
-                    groups = [rank_df.index]
+                    self.logger.warning(f"Лист 'Расчеты': Уровень GOSB - колонки '{tb_col}' или '{gosb_col}' не найдены, используем одну группу", "FileProcessor", "_calculate_ranks")
+                    groups_dict = {"ALL": rank_df.index}
             else:
-                groups = [rank_df.index]
+                self.logger.warning(f"Лист 'Расчеты': Неизвестный уровень ранга '{rank_level}', используем одну группу", "FileProcessor", "_calculate_ranks")
+                groups_dict = {"ALL": rank_df.index}
             
             # Рассчитываем ранг для каждой группы
-            for group_indices in groups:
-                # Фильтруем по условию и группе
-                group_mask = mask[group_indices]
-                group_data = rank_df.loc[group_indices, col_name]
+            group_num = 0
+            for group_key, group_indices in groups_dict.items():
+                group_num += 1
+                # Преобразуем group_indices в Index, если это не Index
+                if not isinstance(group_indices, pd.Index):
+                    group_indices = pd.Index(group_indices)
                 
-                # Применяем условие
-                if rank_condition != "all":
+                # Получаем данные группы
+                group_data = rank_df.loc[group_indices, col_name].copy()
+                
+                # Применяем условие отсечки внутри группы
+                if rank_condition != "all" and rank_condition_value is not None:
+                    # Фильтруем по условию внутри группы
+                    if rank_condition == ">=":
+                        group_mask = group_data >= rank_condition_value
+                    elif rank_condition == "<=":
+                        group_mask = group_data <= rank_condition_value
+                    elif rank_condition == ">":
+                        group_mask = group_data > rank_condition_value
+                    elif rank_condition == "<":
+                        group_mask = group_data < rank_condition_value
+                    elif rank_condition == "==":
+                        group_mask = group_data == rank_condition_value
+                    elif rank_condition == "<>":
+                        group_mask = group_data != rank_condition_value
+                    else:
+                        group_mask = pd.Series([True] * len(group_data), index=group_data.index)
                     valid_indices = group_data[group_mask].index
                 else:
+                    # Все строки группы валидны
                     valid_indices = group_data.index
                 
+                # Логируем информацию о группе для отладки
+                if rank_level == "TB" and tb_col in rank_df.columns:
+                    # Получаем первое значение из группы для логирования
+                    first_idx = list(group_indices)[0] if len(group_indices) > 0 else None
+                    tb_value = rank_df.loc[first_idx, tb_col] if first_idx is not None and first_idx in rank_df.index else "N/A"
+                    self.logger.info(f"Лист 'Расчеты': Группа {group_num} (ТБ='{tb_value}'): всего {len(group_indices)} строк, валидных {len(valid_indices)}", "FileProcessor", "_calculate_ranks")
+                elif rank_level == "GOSB" and tb_col in rank_df.columns and gosb_col in rank_df.columns:
+                    # Получаем первое значение из группы для логирования
+                    first_idx = list(group_indices)[0] if len(group_indices) > 0 else None
+                    if first_idx is not None and first_idx in rank_df.index:
+                        tb_value = rank_df.loc[first_idx, tb_col]
+                        gosb_value = rank_df.loc[first_idx, gosb_col]
+                    else:
+                        tb_value = "N/A"
+                        gosb_value = "N/A"
+                    self.logger.info(f"Лист 'Расчеты': Группа {group_num} (ТБ='{tb_value}', ГОСБ='{gosb_value}'): всего {len(group_indices)} строк, валидных {len(valid_indices)}", "FileProcessor", "_calculate_ranks")
+                else:
+                    self.logger.info(f"Лист 'Расчеты': Группа {group_num}: всего {len(group_indices)} строк, валидных {len(valid_indices)}", "FileProcessor", "_calculate_ranks")
+                
                 if len(valid_indices) == 0:
+                    self.logger.info(f"Лист 'Расчеты': Группа {group_num}: нет строк, соответствующих условию, пропускаем", "FileProcessor", "_calculate_ranks")
                     continue
                 
-                # Получаем значения для ранжирования
-                values_to_rank = group_data.loc[valid_indices]
+                # Получаем значения для ранжирования (только валидные индексы)
+                values_to_rank = group_data.loc[valid_indices].copy()
+                
+                # Логируем первые несколько значений для отладки
+                if len(values_to_rank) > 0:
+                    first_values = values_to_rank.head(5).to_dict()
+                    first_values_str = ", ".join([f"{idx}:{val:.2f}" if pd.notna(val) else f"{idx}:NaN" for idx, val in list(first_values.items())[:5]])
+                    self.logger.info(f"Лист 'Расчеты': Группа {group_num}: первые значения для ранжирования: {first_values_str}", "FileProcessor", "_calculate_ranks")
                 
                 # Сортируем в зависимости от порядка
                 # Ранг 1 - лучший (меньший номер ранга = лучше)
@@ -1913,14 +1984,17 @@ class FileProcessor:
                 
                 # Присваиваем ранги
                 # Первое значение в отсортированном списке получает ранг 1 (лучший ранг)
+                # ВАЖНО: Для каждой группы ранг должен начинаться с 1
                 if rank_tie_method == "dense":
                     # Плотный ранг: 1,2,3,3,3,4,5,6,7
                     # Группируем по значениям и присваиваем последовательные номера начиная с 1
                     # Первое значение в отсортированном списке получает ранг 1
+                    # ВАЖНО: unique() сохраняет порядок первого вхождения, что соответствует порядку sorted_values
                     unique_values = sorted_values.unique()
                     rank_map = {}
                     current_rank = 1
                     for val in unique_values:
+                        # Находим все индексы с таким же значением в отсортированном списке
                         indices = sorted_values[sorted_values == val].index
                         for idx in indices:
                             rank_map[idx] = current_rank
@@ -1928,17 +2002,80 @@ class FileProcessor:
                     ranks = pd.Series(rank_map, dtype=int)
                 else:  # skip
                     # Пропуск мест: 1,2,3,3,3,6,7
-                    # Используем метод 'min' для одинаковых значений
-                    # rank() с ascending=True: меньшее значение получает меньший ранг (ранг 1)
-                    # rank() с ascending=False: большее значение получает меньший ранг (ранг 1)
-                    # Для MAX: sorted_values отсортирован по убыванию, большее первое, нужно ascending=False
-                    # Для MIN: sorted_values отсортирован по возрастанию, меньшее первое, нужно ascending=True
-                    rank_ascending = (rank_order == "MIN")
-                    ranks = sorted_values.rank(method='min', ascending=rank_ascending).astype(int)
+                    # Для одинаковых значений используем минимальный ранг (первое вхождение)
+                    # Следующее уникальное значение получает ранг с учетом пропущенных мест
+                    # ВАЖНО: Ранг должен начинаться с 1 для каждой группы
+                    rank_map = {}
+                    current_rank = 1
+                    i = 0
+                    while i < len(sorted_values):
+                        # Получаем текущее значение
+                        current_value = sorted_values.iloc[i]
+                        # Находим все индексы с таким же значением
+                        same_value_indices = sorted_values[sorted_values == current_value].index.tolist()
+                        # Присваиваем всем одинаковым значениям минимальный ранг (текущий)
+                        for idx in same_value_indices:
+                            rank_map[idx] = current_rank
+                        # Переходим к следующему уникальному значению
+                        # Следующий ранг = текущий ранг + количество одинаковых значений
+                        current_rank += len(same_value_indices)
+                        # Пропускаем все одинаковые значения
+                        i += len(same_value_indices)
+                    ranks = pd.Series(rank_map, dtype=int)
                 
                 # Присваиваем ранги обратно
+                # Проверяем, что все индексы из ranks присутствуют в rank_series
+                missing_indices = [idx for idx in ranks.index if idx not in rank_series.index]
+                if missing_indices:
+                    self.logger.warning(f"Лист 'Расчеты': Группа {group_num}: ВНИМАНИЕ! {len(missing_indices)} индексов из ranks отсутствуют в rank_series!", "FileProcessor", "_calculate_ranks")
+                
                 for idx, rank_val in ranks.items():
-                    rank_series.loc[idx] = int(rank_val)
+                    if idx in rank_series.index:
+                        rank_series.loc[idx] = int(rank_val)
+                    else:
+                        self.logger.warning(f"Лист 'Расчеты': Группа {group_num}: Индекс {idx} не найден в rank_series, пропускаем", "FileProcessor", "_calculate_ranks")
+                
+                # Логируем информацию о присвоенных рангах для проверки
+                if len(ranks) > 0:
+                    min_rank = ranks.min()
+                    max_rank = ranks.max()
+                    unique_ranks_count = len(ranks.unique())
+                    # Показываем первые 5 рангов для отладки
+                    first_ranks = ranks.head(5).to_dict() if len(ranks) > 0 else {}
+                    first_ranks_str = ", ".join([f"{idx}:{rank}" for idx, rank in list(first_ranks.items())[:5]])
+                    self.logger.info(f"Лист 'Расчеты': Группа {group_num}: присвоено рангов {len(ranks)}, диапазон: {min_rank}-{max_rank}, уникальных рангов: {unique_ranks_count}, первые ранги: {first_ranks_str}", "FileProcessor", "_calculate_ranks")
+                    if min_rank != 1:
+                        self.logger.warning(f"Лист 'Расчеты': Группа {group_num}: ВНИМАНИЕ! Минимальный ранг = {min_rank}, должен быть 1!", "FileProcessor", "_calculate_ranks")
+                    # Проверяем, что ранг 1 действительно присвоен
+                    ranks_with_1 = (ranks == 1).sum()
+                    if ranks_with_1 == 0:
+                        self.logger.warning(f"Лист 'Расчеты': Группа {group_num}: ВНИМАНИЕ! Ранг 1 не присвоен ни одному элементу!", "FileProcessor", "_calculate_ranks")
+            
+            # Финальная проверка: убеждаемся, что для каждого уровня ранги начинаются с 1 внутри каждой группы
+            if rank_level == "TB" and tb_col in rank_df.columns:
+                # Проверяем, что для каждого ТБ минимальный ранг равен 1
+                for tb_val in rank_df[tb_col].unique():
+                    tb_mask = rank_df[tb_col] == tb_val
+                    tb_ranks = rank_series[tb_mask]
+                    tb_non_zero_ranks = tb_ranks[tb_ranks != 0]
+                    if len(tb_non_zero_ranks) > 0:
+                        tb_min_rank = tb_non_zero_ranks.min()
+                        if tb_min_rank != 1:
+                            self.logger.warning(f"Лист 'Расчеты': ТБ '{tb_val}': минимальный ранг = {tb_min_rank}, должен быть 1!", "FileProcessor", "_calculate_ranks")
+                        else:
+                            self.logger.info(f"Лист 'Расчеты': ТБ '{tb_val}': проверка пройдена, минимальный ранг = 1, всего рангов: {len(tb_non_zero_ranks)}", "FileProcessor", "_calculate_ranks")
+            elif rank_level == "GOSB" and tb_col in rank_df.columns and gosb_col in rank_df.columns:
+                # Проверяем, что для каждой комбинации ТБ+ГОСБ минимальный ранг равен 1
+                for (tb_val, gosb_val) in rank_df[[tb_col, gosb_col]].drop_duplicates().values:
+                    gosb_mask = (rank_df[tb_col] == tb_val) & (rank_df[gosb_col] == gosb_val)
+                    gosb_ranks = rank_series[gosb_mask]
+                    gosb_non_zero_ranks = gosb_ranks[gosb_ranks != 0]
+                    if len(gosb_non_zero_ranks) > 0:
+                        gosb_min_rank = gosb_non_zero_ranks.min()
+                        if gosb_min_rank != 1:
+                            self.logger.warning(f"Лист 'Расчеты': ТБ '{tb_val}', ГОСБ '{gosb_val}': минимальный ранг = {gosb_min_rank}, должен быть 1!", "FileProcessor", "_calculate_ranks")
+                        else:
+                            self.logger.info(f"Лист 'Расчеты': ТБ '{tb_val}', ГОСБ '{gosb_val}': проверка пройдена, минимальный ранг = 1, всего рангов: {len(gosb_non_zero_ranks)}", "FileProcessor", "_calculate_ranks")
             
             # Формируем имя колонки ранга
             # Извлекаем только группу и месяц из имени колонки (без описания расчета)
