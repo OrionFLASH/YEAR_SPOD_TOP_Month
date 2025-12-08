@@ -116,6 +116,8 @@ class FileItem:
     - sheet: название листа (если None, используется default_sheet из группы)
     - columns: список колонок (если пустой [], используются из defaults.columns)
     - filters: словарь с drop_rules и in_rules (если пустые [], используются из defaults)
+    - calculation_type: тип расчета для второго листа (1, 2, 3 или None - использовать default)
+    - first_month_value: значение для первого месяца при расчете типа 2 (None - использовать default)
     """
     # Ключ файла (для идентификации, например "OD_01", "OD_02")
     key: str
@@ -140,6 +142,67 @@ class FileItem:
     # in_rules: список словарей {"alias": "...", "values": [...], "condition": "in" или "not_in"}
     # Если drop_rules или in_rules пустые массивы [], используются из defaults
     filters: Dict[str, Any] = field(default_factory=dict)
+    
+    # Тип расчета для второго листа (1, 2, 3 или None - использовать default из группы)
+    # 1: Как есть - просто сумма
+    # 2: Прирост по 2 месяцам (текущий - предыдущий)
+    # 3: Прирост по трем периодам (М-3 - 2*М-2 + М-1)
+    calculation_type: Optional[int] = None
+    
+    # Значение для первого месяца при расчете типа 2
+    # "self" - равен самому себе (сумме в этом месяце)
+    # "zero" - равен 0
+    # None - использовать default из группы
+    first_month_value: Optional[str] = None
+    
+    # Правила для первого и второго месяца при расчете типа 3
+    # "zero_both" - первый и второй месяц оба равны 0
+    # "zero_first_diff_second" - первый равен 0, второй равен разнице между вторым и первым
+    # "self_first_diff_second" - первый равен самому себе, второй равен разнице между вторым и первым
+    # None - использовать default из группы
+    three_periods_first_months: Optional[str] = None
+
+
+@dataclass
+class DefaultsConfig:
+    """
+    Настройки по умолчанию для группы файлов.
+    
+    Все эти настройки используются, если в FileItem не указаны индивидуальные значения.
+    """
+    # Колонки по умолчанию: маппинг source (имя в Excel) -> alias (внутреннее имя)
+    columns: List[Dict[str, str]] = field(default_factory=list)
+    
+    # Правила удаления строк по умолчанию (drop_rules)
+    drop_rules: List[DropRule] = field(default_factory=list)
+    
+    # Правила включения строк по умолчанию (in_rules)
+    in_rules: List[IncludeRule] = field(default_factory=list)
+    
+    # Имена колонок после маппинга (используются alias)
+    tab_number_column: str = "tab_number"
+    tb_column: str = "tb"
+    gosb_column: str = "gosb"
+    fio_column: str = "fio"
+    indicator_column: str = "indicator"
+    
+    # Параметры обработки файлов
+    header_row: Optional[int] = 0
+    skip_rows: int = 0
+    skip_footer: int = 0
+    sheet_name: Optional[str] = None
+    sheet_index: Optional[int] = None
+    
+    # Параметры расчета для второго листа
+    # Тип расчета: 1 - как есть, 2 - прирост по 2 месяцам, 3 - прирост по трем периодам
+    calculation_type: int = 1
+    
+    # Значение для первого месяца при расчете типа 2: "self" или "zero"
+    first_month_value: str = "self"
+    
+    # Правила для первого и второго месяца при расчете типа 3
+    # "zero_both", "zero_first_diff_second", "self_first_diff_second"
+    three_periods_first_months: str = "zero_both"
 
 
 @dataclass
@@ -156,50 +219,8 @@ class GroupConfig:
     # Если columns или filters.drop_rules пустые массивы [], используются значения из defaults
     items: List[FileItem] = field(default_factory=list)
     
-    # Колонки по умолчанию для этой группы
-    # Формат: [{"alias": "tb", "source": "Короткое ТБ"}, ...]
-    # alias - внутреннее имя колонки (английское)
-    # source - имя колонки в Excel файле (русское)
-    default_columns: List[Dict[str, str]] = field(default_factory=list)
-    
-    # Правила удаления строк по умолчанию (drop_rules)
-    # Если в items для файла drop_rules пустой массив [], используются эти правила
-    default_drop_rules: List[DropRule] = field(default_factory=list)
-    
-    # Правила включения строк по умолчанию (in_rules)
-    # Если в items для файла in_rules пустой массив [], используются эти правила
-    default_in_rules: List[IncludeRule] = field(default_factory=list)
-    
-    # Название колонки с табельным номером (используется alias после маппинга)
-    tab_number_column: str = "tab_number"
-    
-    # Название колонки с ТБ (используется alias после маппинга)
-    tb_column: str = "tb"
-    
-    # Название колонки с ГОСБ (используется alias после маппинга)
-    gosb_column: str = "gosb"
-    
-    # Название колонки с ФИО (используется alias после маппинга)
-    fio_column: str = "fio"
-    
-    # Название колонки с показателем (используется alias после маппинга)
-    indicator_column: str = "indicator"
-    
-    # Дополнительные параметры обработки файлов
-    # Номер строки с заголовками (0 - первая строка, None - автоматическое определение)
-    header_row: Optional[int] = 0
-    
-    # Количество строк для пропуска в начале файла
-    skip_rows: int = 0
-    
-    # Количество строк для пропуска в конце файла
-    skip_footer: int = 0
-    
-    # Название листа для чтения (None - первый лист)
-    sheet_name: Optional[str] = None
-    
-    # Номер листа для чтения (0 - первый лист, None - использовать sheet_name)
-    sheet_index: Optional[int] = None
+    # Настройки по умолчанию для этой группы
+    defaults: DefaultsConfig = field(default_factory=DefaultsConfig)
 
 
 class ConfigManager:
@@ -223,70 +244,115 @@ class ConfigManager:
             name="OD",
             default_sheet="Sheet1",
             items=[
-                FileItem(key="OD_01", label="OD Январь", file_name="M-1_OD.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
-                FileItem(key="OD_02", label="OD Февраль", file_name="M-2_OD.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
-                FileItem(key="OD_03", label="OD Март", file_name="M-3_OD.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
-                FileItem(key="OD_04", label="OD Апрель", file_name="M-4_OD.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
-                FileItem(key="OD_05", label="OD Май", file_name="M-5_OD.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
-                FileItem(key="OD_06", label="OD Июнь", file_name="M-6_OD.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
-                FileItem(key="OD_07", label="OD Июль", file_name="M-7_OD.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
-                FileItem(key="OD_08", label="OD Август", file_name="M-8_OD.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
-                FileItem(key="OD_09", label="OD Сентябрь", file_name="M-9_OD.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
-                FileItem(key="OD_10", label="OD Октябрь", file_name="M-10_OD.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
-                FileItem(key="OD_11", label="OD Ноябрь", file_name="M-11_OD.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
-                FileItem(key="OD_12", label="OD Декабрь", file_name="M-12_OD.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
+                # Параметры расчета можно задавать для каждого файла индивидуально:
+                # - calculation_type: 1, 2, 3 или None (использовать default)
+                # - first_month_value: "self", "zero" или None (использовать default)
+                # - three_periods_first_months: "zero_both", "zero_first_diff_second", "self_first_diff_second" или None (использовать default)
+                # Примеры:
+                #   FileItem(..., calculation_type=2, first_month_value="zero")  # Для этого файла тип 2, первый месяц = 0
+                #   FileItem(..., calculation_type=3, three_periods_first_months="self_first_diff_second")  # Для этого файла тип 3 с особыми правилами
+                # Если параметры не указаны (None), используются значения из defaults
+                FileItem(key="OD_01", label="OD Январь", file_name="M-1_OD.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}, calculation_type=None, first_month_value=None, three_periods_first_months=None),
+                FileItem(key="OD_02", label="OD Февраль", file_name="M-2_OD.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}, calculation_type=None, first_month_value=None, three_periods_first_months=None),
+                FileItem(key="OD_03", label="OD Март", file_name="M-3_OD.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}, calculation_type=None, first_month_value=None, three_periods_first_months=None),
+                FileItem(key="OD_04", label="OD Апрель", file_name="M-4_OD.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}, calculation_type=None, first_month_value=None, three_periods_first_months=None),
+                FileItem(key="OD_05", label="OD Май", file_name="M-5_OD.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}, calculation_type=None, first_month_value=None, three_periods_first_months=None),
+                FileItem(key="OD_06", label="OD Июнь", file_name="M-6_OD.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}, calculation_type=None, first_month_value=None, three_periods_first_months=None),
+                FileItem(key="OD_07", label="OD Июль", file_name="M-7_OD.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}, calculation_type=None, first_month_value=None, three_periods_first_months=None),
+                FileItem(key="OD_08", label="OD Август", file_name="M-8_OD.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}, calculation_type=None, first_month_value=None, three_periods_first_months=None),
+                FileItem(key="OD_09", label="OD Сентябрь", file_name="M-9_OD.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}, calculation_type=None, first_month_value=None, three_periods_first_months=None),
+                FileItem(key="OD_10", label="OD Октябрь", file_name="M-10_OD.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}, calculation_type=None, first_month_value=None, three_periods_first_months=None),
+                FileItem(key="OD_11", label="OD Ноябрь", file_name="M-11_OD.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}, calculation_type=None, first_month_value=None, three_periods_first_months=None),
+                FileItem(key="OD_12", label="OD Декабрь", file_name="M-12_OD.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}, calculation_type=None, first_month_value=None, three_periods_first_months=None),
             ],
-            # Колонки по умолчанию: маппинг source (имя в Excel) -> alias (внутреннее имя)
-            default_columns=[
-                {"alias": "tab_number", "source": "Табельный номер"},
-                {"alias": "tb", "source": "Короткое ТБ"},
-                {"alias": "gosb", "source": "Полное ГОСБ"},
-                {"alias": "client_id", "source": "ИНН"},
-                {"alias": "fio", "source": "ФИО"},
-                {"alias": "indicator", "source": "Факт"}
-            ],
-            # Правила удаления строк по умолчанию (drop_rules)
-            # Если в items для файла drop_rules пустой массив [], используются эти правила
-            # 
-            # Параметры DropRule:
-            #   - alias: имя поля после маппинга (из default_columns)
-            #   - values: список запрещенных значений
-            #   - remove_unconditionally: True - удалять всегда, False - не удалять
-            #   - check_by_inn: True - не удалять, если по ИНН есть другие значения
-            #   - check_by_tn: True - не удалять, если по ТН есть другие значения
-            #
-            # Примеры:
-            #   DropRule(alias="status", values=["Удален", "Архив"], remove_unconditionally=True, check_by_inn=False, check_by_tn=False)
-            #   DropRule(alias="tb", values=["ЦА"], remove_unconditionally=True, check_by_inn=True, check_by_tn=False)
-            default_drop_rules=[
-                # DropRule(alias="status", values=["Удален", "Архив"], remove_unconditionally=True, check_by_inn=False, check_by_tn=False),
-            ],
-            # Правила включения строк по умолчанию (in_rules)
-            # Если в items для файла in_rules пустой массив [], используются эти правила
-            # Строка попадает в расчет только если она проходит ВСЕ условия из in_rules (И)
-            #
-            # Параметры IncludeRule:
-            #   - alias: имя поля после маппинга (из default_columns)
-            #   - values: список разрешенных значений
-            #   - condition: "in" - значение должно быть в списке, "not_in" - не должно быть
-            #
-            # Примеры:
-            #   IncludeRule(alias="type", values=["Активен"], condition="in")
-            #   IncludeRule(alias="tb", values=["ЦА"], condition="not_in")
-            default_in_rules=[
-                # IncludeRule(alias="type", values=["Активен"], condition="in"),
-            ],
-            # Имена колонок после маппинга (используются alias)
-            tab_number_column="tab_number",
-            tb_column="tb",
-            gosb_column="gosb",
-            fio_column="fio",
-            indicator_column="indicator",
-            header_row=0,
-            skip_rows=0,
-            skip_footer=0,
-            sheet_name=None,
-            sheet_index=None
+            defaults=DefaultsConfig(
+                # Колонки по умолчанию: маппинг source (имя в Excel) -> alias (внутреннее имя)
+                # Формат: [{"alias": "внутреннее_имя", "source": "Имя в Excel"}, ...]
+                # Примеры:
+                #   {"alias": "tab_number", "source": "Табельный номер"}
+                #   {"alias": "tb", "source": "Короткое ТБ"}
+                #   {"alias": "indicator", "source": "Факт"}
+                columns=[
+                    {"alias": "tab_number", "source": "Табельный номер"},
+                    {"alias": "tb", "source": "Короткое ТБ"},
+                    {"alias": "gosb", "source": "Полное ГОСБ"},
+                    {"alias": "client_id", "source": "ИНН"},
+                    {"alias": "fio", "source": "ФИО"},
+                    {"alias": "indicator", "source": "Факт"}
+                ],
+                
+                # Правила удаления строк по умолчанию (drop_rules)
+                # Формат: [DropRule(alias="...", values=[...], ...), ...]
+                # Параметры DropRule:
+                #   - alias: имя поля после маппинга (из columns)
+                #   - values: список запрещенных значений
+                #   - remove_unconditionally: True - удалять всегда, False - не удалять
+                #   - check_by_inn: True - не удалять, если по ИНН есть другие значения
+                #   - check_by_tn: True - не удалять, если по ТН есть другие значения
+                # Примеры:
+                #   DropRule(alias="status", values=["Удален", "Архив"], remove_unconditionally=True, check_by_inn=False, check_by_tn=False)
+                #   DropRule(alias="tb", values=["ЦА"], remove_unconditionally=True, check_by_inn=True, check_by_tn=False)
+                drop_rules=[
+                    # DropRule(alias="status", values=["Удален", "Архив"], remove_unconditionally=True, check_by_inn=False, check_by_tn=False),
+                ],
+                
+                # Правила включения строк по умолчанию (in_rules)
+                # Формат: [IncludeRule(alias="...", values=[...], condition="..."), ...]
+                # Параметры IncludeRule:
+                #   - alias: имя поля после маппинга (из columns)
+                #   - values: список разрешенных значений
+                #   - condition: "in" - значение должно быть в списке, "not_in" - не должно быть
+                # Строка попадает в расчет только если она проходит ВСЕ условия из in_rules (И)
+                # Примеры:
+                #   IncludeRule(alias="type", values=["Активен"], condition="in")
+                #   IncludeRule(alias="tb", values=["ЦА"], condition="not_in")
+                in_rules=[
+                    # IncludeRule(alias="type", values=["Активен"], condition="in"),
+                ],
+                
+                # Имена колонок после маппинга (используются alias из columns)
+                # Эти имена используются для доступа к данным после преобразования
+                tab_number_column="tab_number",  # Колонка с табельным номером
+                tb_column="tb",                   # Колонка с ТБ (территориальный банк)
+                gosb_column="gosb",               # Колонка с ГОСБ (головной офис)
+                fio_column="fio",                 # Колонка с ФИО
+                indicator_column="indicator",     # Колонка с показателем (факт)
+                
+                # Параметры обработки файлов
+                header_row=0,          # Номер строки с заголовками (0 - первая строка, None - автоматическое определение)
+                skip_rows=0,          # Количество строк для пропуска в начале файла
+                skip_footer=0,        # Количество строк для пропуска в конце файла
+                sheet_name=None,      # Название листа для чтения (None - первый лист)
+                sheet_index=None,     # Номер листа для чтения (0 - первый лист, None - использовать sheet_name)
+                
+                # Параметры расчета для второго листа "Расчеты"
+                # Тип расчета (calculation_type):
+                #   1 - "Как есть": просто загружаем сумму данных по табельному в указанный месяц (аналог первого листа)
+                #   2 - "Прирост по 2 месяцам": текущий месяц - предыдущий месяц
+                #      Пример: Февраль М-2 = Февраль М-2 - Январь М-1
+                #      Пример: Апрель М-4 = Апрель М-4 - Март М-3
+                #   3 - "Прирост по трем периодам": М-N = М-N - 2*М-(N-1) + М-(N-2)
+                #      Пример: М-3 = М-3 - 2*М-2 + М-1
+                #      Пример: М-4 = М-4 - 2*М-3 + М-2
+                calculation_type=3,
+                
+                # Значение для первого месяца при расчете типа 2 (first_month_value):
+                #   "self" - первый месяц равен самому себе (сумме по этому ТН в этом месяце)
+                #   "zero" - первый месяц равен 0
+                # Пример: если первый месяц = Январь М-1, то:
+                #   "self" -> М-1 = сумма по ТН в январе
+                #   "zero" -> М-1 = 0
+                first_month_value="self",
+                
+                # Правила для первого и второго месяца при расчете типа 3 (three_periods_first_months):
+                #   "zero_both" - первый и второй месяц оба равны 0
+                #     Пример: М-1 = 0, М-2 = 0, М-3 = М-3 - 2*М-2 + М-1
+                #   "zero_first_diff_second" - первый равен 0, второй равен разнице между вторым и первым
+                #     Пример: М-1 = 0, М-2 = М-2 - М-1, М-3 = М-3 - 2*М-2 + М-1
+                #   "self_first_diff_second" - первый равен самому себе, второй равен разнице между вторым и первым
+                #     Пример: М-1 = М-1 (сумма), М-2 = М-2 - М-1, М-3 = М-3 - 2*М-2 + М-1
+                three_periods_first_months="self_first_diff_second"
+            )
         )
         
         # Конфигурация для группы RA (Работающие Активы/кредиты)
@@ -294,6 +360,14 @@ class ConfigManager:
             name="RA",
             default_sheet="Sheet1",
             items=[
+                # Параметры расчета можно задавать для каждого файла индивидуально:
+                # - calculation_type: 1, 2, 3 или None (использовать default)
+                # - first_month_value: "self", "zero" или None (использовать default)
+                # - three_periods_first_months: "zero_both", "zero_first_diff_second", "self_first_diff_second" или None (использовать default)
+                # Примеры:
+                #   FileItem(..., calculation_type=2, first_month_value="zero")  # Для этого файла тип 2, первый месяц = 0
+                #   FileItem(..., calculation_type=3, three_periods_first_months="self_first_diff_second")  # Для этого файла тип 3 с особыми правилами
+                # Если параметры не указаны (None), используются значения из defaults
                 FileItem(key="RA_01", label="RA Январь", file_name="M-1_RA.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
                 FileItem(key="RA_02", label="RA Февраль", file_name="M-2_RA.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
                 FileItem(key="RA_03", label="RA Март", file_name="M-3_RA.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
@@ -307,34 +381,94 @@ class ConfigManager:
                 FileItem(key="RA_11", label="RA Ноябрь", file_name="M-11_RA.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
                 FileItem(key="RA_12", label="RA Декабрь", file_name="M-12_RA.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
             ],
-            # Колонки по умолчанию: маппинг source (имя в Excel) -> alias (внутреннее имя)
-            default_columns=[
-                {"alias": "tab_number", "source": "Табельный номер"},
-                {"alias": "tb", "source": "Короткое ТБ"},
-                {"alias": "gosb", "source": "Полное ГОСБ"},
-                {"alias": "client_id", "source": "ИНН"},
-                {"alias": "fio", "source": "ФИО"},
-                {"alias": "indicator", "source": "Факт"}
-            ],
-            # Правила удаления строк по умолчанию (drop_rules)
-            default_drop_rules=[
-                # DropRule(alias="status", values=["Удален", "Архив"], remove_unconditionally=True, check_by_inn=False, check_by_tn=False),
-            ],
-            # Правила включения строк по умолчанию (in_rules)
-            default_in_rules=[
-                # IncludeRule(alias="type", values=["Активен"], condition="in"),
-            ],
-            # Имена колонок после маппинга (используются alias)
-            tab_number_column="tab_number",
-            tb_column="tb",
-            gosb_column="gosb",
-            fio_column="fio",
-            indicator_column="indicator",
-            header_row=0,
-            skip_rows=0,
-            skip_footer=0,
-            sheet_name=None,
-            sheet_index=None
+            defaults=DefaultsConfig(
+                # Колонки по умолчанию: маппинг source (имя в Excel) -> alias (внутреннее имя)
+                # Формат: [{"alias": "внутреннее_имя", "source": "Имя в Excel"}, ...]
+                # Примеры:
+                #   {"alias": "tab_number", "source": "Табельный номер"}
+                #   {"alias": "tb", "source": "Короткое ТБ"}
+                #   {"alias": "indicator", "source": "Факт"}
+                columns=[
+                    {"alias": "tab_number", "source": "Табельный номер"},
+                    {"alias": "tb", "source": "Короткое ТБ"},
+                    {"alias": "gosb", "source": "Полное ГОСБ"},
+                    {"alias": "client_id", "source": "ИНН"},
+                    {"alias": "fio", "source": "ФИО"},
+                    {"alias": "indicator", "source": "Факт"}
+                ],
+                
+                # Правила удаления строк по умолчанию (drop_rules)
+                # Формат: [DropRule(alias="...", values=[...], ...), ...]
+                # Параметры DropRule:
+                #   - alias: имя поля после маппинга (из columns)
+                #   - values: список запрещенных значений
+                #   - remove_unconditionally: True - удалять всегда, False - не удалять
+                #   - check_by_inn: True - не удалять, если по ИНН есть другие значения
+                #   - check_by_tn: True - не удалять, если по ТН есть другие значения
+                # Примеры:
+                #   DropRule(alias="status", values=["Удален", "Архив"], remove_unconditionally=True, check_by_inn=False, check_by_tn=False)
+                #   DropRule(alias="tb", values=["ЦА"], remove_unconditionally=True, check_by_inn=True, check_by_tn=False)
+                drop_rules=[
+                    # DropRule(alias="status", values=["Удален", "Архив"], remove_unconditionally=True, check_by_inn=False, check_by_tn=False),
+                ],
+                
+                # Правила включения строк по умолчанию (in_rules)
+                # Формат: [IncludeRule(alias="...", values=[...], condition="..."), ...]
+                # Параметры IncludeRule:
+                #   - alias: имя поля после маппинга (из columns)
+                #   - values: список разрешенных значений
+                #   - condition: "in" - значение должно быть в списке, "not_in" - не должно быть
+                # Строка попадает в расчет только если она проходит ВСЕ условия из in_rules (И)
+                # Примеры:
+                #   IncludeRule(alias="type", values=["Активен"], condition="in")
+                #   IncludeRule(alias="tb", values=["ЦА"], condition="not_in")
+                in_rules=[
+                    # IncludeRule(alias="type", values=["Активен"], condition="in"),
+                ],
+                
+                # Имена колонок после маппинга (используются alias из columns)
+                # Эти имена используются для доступа к данным после преобразования
+                tab_number_column="tab_number",  # Колонка с табельным номером
+                tb_column="tb",                   # Колонка с ТБ (территориальный банк)
+                gosb_column="gosb",               # Колонка с ГОСБ (головной офис)
+                fio_column="fio",                 # Колонка с ФИО
+                indicator_column="indicator",     # Колонка с показателем (факт)
+                
+                # Параметры обработки файлов
+                header_row=0,          # Номер строки с заголовками (0 - первая строка, None - автоматическое определение)
+                skip_rows=0,          # Количество строк для пропуска в начале файла
+                skip_footer=0,        # Количество строк для пропуска в конце файла
+                sheet_name=None,      # Название листа для чтения (None - первый лист)
+                sheet_index=None,     # Номер листа для чтения (0 - первый лист, None - использовать sheet_name)
+                
+                # Параметры расчета для второго листа "Расчеты"
+                # Тип расчета (calculation_type):
+                #   1 - "Как есть": просто загружаем сумму данных по табельному в указанный месяц (аналог первого листа)
+                #   2 - "Прирост по 2 месяцам": текущий месяц - предыдущий месяц
+                #      Пример: Февраль М-2 = Февраль М-2 - Январь М-1
+                #      Пример: Апрель М-4 = Апрель М-4 - Март М-3
+                #   3 - "Прирост по трем периодам": М-N = М-N - 2*М-(N-1) + М-(N-2)
+                #      Пример: М-3 = М-3 - 2*М-2 + М-1
+                #      Пример: М-4 = М-4 - 2*М-3 + М-2
+                calculation_type=2,
+                
+                # Значение для первого месяца при расчете типа 2 (first_month_value):
+                #   "self" - первый месяц равен самому себе (сумме по этому ТН в этом месяце)
+                #   "zero" - первый месяц равен 0
+                # Пример: если первый месяц = Январь М-1, то:
+                #   "self" -> М-1 = сумма по ТН в январе
+                #   "zero" -> М-1 = 0
+                first_month_value="self",
+                
+                # Правила для первого и второго месяца при расчете типа 3 (three_periods_first_months):
+                #   "zero_both" - первый и второй месяц оба равны 0
+                #     Пример: М-1 = 0, М-2 = 0, М-3 = М-3 - 2*М-2 + М-1
+                #   "zero_first_diff_second" - первый равен 0, второй равен разнице между вторым и первым
+                #     Пример: М-1 = 0, М-2 = М-2 - М-1, М-3 = М-3 - 2*М-2 + М-1
+                #   "self_first_diff_second" - первый равен самому себе, второй равен разнице между вторым и первым
+                #     Пример: М-1 = М-1 (сумма), М-2 = М-2 - М-1, М-3 = М-3 - 2*М-2 + М-1
+                three_periods_first_months="self_first_diff_second"
+            )
         )
         
         # Конфигурация для группы PS (Пассивы)
@@ -342,6 +476,14 @@ class ConfigManager:
             name="PS",
             default_sheet="Sheet1",
             items=[
+                # Параметры расчета можно задавать для каждого файла индивидуально:
+                # - calculation_type: 1, 2, 3 или None (использовать default)
+                # - first_month_value: "self", "zero" или None (использовать default)
+                # - three_periods_first_months: "zero_both", "zero_first_diff_second", "self_first_diff_second" или None (использовать default)
+                # Примеры:
+                #   FileItem(..., calculation_type=2, first_month_value="zero")  # Для этого файла тип 2, первый месяц = 0
+                #   FileItem(..., calculation_type=3, three_periods_first_months="self_first_diff_second")  # Для этого файла тип 3 с особыми правилами
+                # Если параметры не указаны (None), используются значения из defaults
                 FileItem(key="PS_01", label="PS Январь", file_name="M-1_PS.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
                 FileItem(key="PS_02", label="PS Февраль", file_name="M-2_PS.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
                 FileItem(key="PS_03", label="PS Март", file_name="M-3_PS.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
@@ -355,36 +497,96 @@ class ConfigManager:
                 FileItem(key="PS_11", label="PS Ноябрь", file_name="M-11_PS.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
                 FileItem(key="PS_12", label="PS Декабрь", file_name="M-12_PS.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
             ],
-            # Колонки по умолчанию: маппинг source (имя в Excel) -> alias (внутреннее имя)
-            default_columns=[
-                {"alias": "tab_number", "source": "Табельный номер"},
-                {"alias": "tb", "source": "Короткое ТБ"},
-                {"alias": "gosb", "source": "Полное ГОСБ"},
-                {"alias": "client_id", "source": "ИНН"},
-                {"alias": "fio", "source": "ФИО"},
-                {"alias": "indicator", "source": "Факт"}
-            ],
-            # Правила удаления строк по умолчанию (drop_rules)
-            default_drop_rules=[
-                # DropRule(alias="status", values=["Удален", "Архив"], remove_unconditionally=True, check_by_inn=False, check_by_tn=False),
-            ],
-            # Правила включения строк по умолчанию (in_rules)
-            default_in_rules=[
-                # IncludeRule(alias="type", values=["Активен"], condition="in"),
-            ],
-            # Имена колонок после маппинга (используются alias)
-            tab_number_column="tab_number",
-            tb_column="tb",
-            gosb_column="gosb",
-            fio_column="fio",
-            indicator_column="indicator",
-            header_row=0,
-            skip_rows=0,
-            skip_footer=0,
-            sheet_name=None,
-            sheet_index=None
+            defaults=DefaultsConfig(
+                # Колонки по умолчанию: маппинг source (имя в Excel) -> alias (внутреннее имя)
+                # Формат: [{"alias": "внутреннее_имя", "source": "Имя в Excel"}, ...]
+                # Примеры:
+                #   {"alias": "tab_number", "source": "Табельный номер"}
+                #   {"alias": "tb", "source": "Короткое ТБ"}
+                #   {"alias": "indicator", "source": "Факт"}
+                columns=[
+                    {"alias": "tab_number", "source": "Табельный номер"},
+                    {"alias": "tb", "source": "Короткое ТБ"},
+                    {"alias": "gosb", "source": "Полное ГОСБ"},
+                    {"alias": "client_id", "source": "ИНН"},
+                    {"alias": "fio", "source": "ФИО"},
+                    {"alias": "indicator", "source": "Факт"}
+                ],
+                
+                # Правила удаления строк по умолчанию (drop_rules)
+                # Формат: [DropRule(alias="...", values=[...], ...), ...]
+                # Параметры DropRule:
+                #   - alias: имя поля после маппинга (из columns)
+                #   - values: список запрещенных значений
+                #   - remove_unconditionally: True - удалять всегда, False - не удалять
+                #   - check_by_inn: True - не удалять, если по ИНН есть другие значения
+                #   - check_by_tn: True - не удалять, если по ТН есть другие значения
+                # Примеры:
+                #   DropRule(alias="status", values=["Удален", "Архив"], remove_unconditionally=True, check_by_inn=False, check_by_tn=False)
+                #   DropRule(alias="tb", values=["ЦА"], remove_unconditionally=True, check_by_inn=True, check_by_tn=False)
+                drop_rules=[
+                    # DropRule(alias="status", values=["Удален", "Архив"], remove_unconditionally=True, check_by_inn=False, check_by_tn=False),
+                ],
+                
+                # Правила включения строк по умолчанию (in_rules)
+                # Формат: [IncludeRule(alias="...", values=[...], condition="..."), ...]
+                # Параметры IncludeRule:
+                #   - alias: имя поля после маппинга (из columns)
+                #   - values: список разрешенных значений
+                #   - condition: "in" - значение должно быть в списке, "not_in" - не должно быть
+                # Строка попадает в расчет только если она проходит ВСЕ условия из in_rules (И)
+                # Примеры:
+                #   IncludeRule(alias="type", values=["Активен"], condition="in")
+                #   IncludeRule(alias="tb", values=["ЦА"], condition="not_in")
+                in_rules=[
+                    # IncludeRule(alias="type", values=["Активен"], condition="in"),
+                ],
+                
+                # Имена колонок после маппинга (используются alias из columns)
+                # Эти имена используются для доступа к данным после преобразования
+                tab_number_column="tab_number",  # Колонка с табельным номером
+                tb_column="tb",                   # Колонка с ТБ (территориальный банк)
+                gosb_column="gosb",               # Колонка с ГОСБ (головной офис)
+                fio_column="fio",                 # Колонка с ФИО
+                indicator_column="indicator",     # Колонка с показателем (факт)
+                
+                # Параметры обработки файлов
+                header_row=0,          # Номер строки с заголовками (0 - первая строка, None - автоматическое определение)
+                skip_rows=0,          # Количество строк для пропуска в начале файла
+                skip_footer=0,        # Количество строк для пропуска в конце файла
+                sheet_name=None,      # Название листа для чтения (None - первый лист)
+                sheet_index=None,     # Номер листа для чтения (0 - первый лист, None - использовать sheet_name)
+                
+                # Параметры расчета для второго листа "Расчеты"
+                # Тип расчета (calculation_type):
+                #   1 - "Как есть": просто загружаем сумму данных по табельному в указанный месяц (аналог первого листа)
+                #   2 - "Прирост по 2 месяцам": текущий месяц - предыдущий месяц
+                #      Пример: Февраль М-2 = Февраль М-2 - Январь М-1
+                #      Пример: Апрель М-4 = Апрель М-4 - Март М-3
+                #   3 - "Прирост по трем периодам": М-N = М-N - 2*М-(N-1) + М-(N-2)
+                #      Пример: М-3 = М-3 - 2*М-2 + М-1
+                #      Пример: М-4 = М-4 - 2*М-3 + М-2
+                calculation_type=2,
+                
+                # Значение для первого месяца при расчете типа 2 (first_month_value):
+                #   "self" - первый месяц равен самому себе (сумме по этому ТН в этом месяце)
+                #   "zero" - первый месяц равен 0
+                # Пример: если первый месяц = Январь М-1, то:
+                #   "self" -> М-1 = сумма по ТН в январе
+                #   "zero" -> М-1 = 0
+                first_month_value="self",
+                
+                # Правила для первого и второго месяца при расчете типа 3 (three_periods_first_months):
+                #   "zero_both" - первый и второй месяц оба равны 0
+                #     Пример: М-1 = 0, М-2 = 0, М-3 = М-3 - 2*М-2 + М-1
+                #   "zero_first_diff_second" - первый равен 0, второй равен разнице между вторым и первым
+                #     Пример: М-1 = 0, М-2 = М-2 - М-1, М-3 = М-3 - 2*М-2 + М-1
+                #   "self_first_diff_second" - первый равен самому себе, второй равен разнице между вторым и первым
+                #     Пример: М-1 = М-1 (сумма), М-2 = М-2 - М-1, М-3 = М-3 - 2*М-2 + М-1
+                three_periods_first_months="self_first_diff_second"
+            )
         )
-        
+
         return configs
     
     def get_file_item(self, group_name: str, file_name: str) -> Optional[FileItem]:
@@ -429,12 +631,15 @@ class ConfigManager:
         # Ищем элемент файла в items
         file_item = self.get_file_item(group_name, file_name)
         
+        # Получаем defaults из конфигурации группы
+        defaults = group_config.defaults
+        
         # Формируем итоговую конфигурацию
         # Колонки: если в item есть columns и он не пустой, используем их, иначе defaults
         if file_item and file_item.columns:
             columns = file_item.columns
         else:
-            columns = group_config.default_columns
+            columns = defaults.columns
         
         # Правила удаления: если в item есть filters.drop_rules и он не пустой, используем их, иначе defaults
         if file_item and file_item.filters.get("drop_rules"):
@@ -449,7 +654,7 @@ class ConfigManager:
                 ) for rule in file_item.filters["drop_rules"]
             ]
         else:
-            drop_rules = group_config.default_drop_rules
+            drop_rules = defaults.drop_rules
         
         # Правила включения: если в item есть filters.in_rules и он не пустой, используем их, иначе defaults
         if file_item and file_item.filters.get("in_rules"):
@@ -462,25 +667,37 @@ class ConfigManager:
                 ) for rule in file_item.filters["in_rules"]
             ]
         else:
-            in_rules = group_config.default_in_rules
+            in_rules = defaults.in_rules
         
         # Лист: если в item есть sheet, используем его, иначе default_sheet группы
         sheet_name = file_item.sheet if file_item and file_item.sheet else group_config.default_sheet
+        
+        # Тип расчета: если в item есть calculation_type, используем его, иначе default
+        calculation_type = file_item.calculation_type if file_item and file_item.calculation_type is not None else defaults.calculation_type
+        
+        # Значение для первого месяца: если в item есть first_month_value, используем его, иначе default
+        first_month_value = file_item.first_month_value if file_item and file_item.first_month_value is not None else defaults.first_month_value
+        
+        # Правила для первого и второго месяца при расчете типа 3: если в item есть three_periods_first_months, используем его, иначе default
+        three_periods_first_months = file_item.three_periods_first_months if file_item and file_item.three_periods_first_months is not None else defaults.three_periods_first_months
         
         result = {
             "columns": columns,
             "drop_rules": drop_rules,
             "in_rules": in_rules,
-            "tab_number_column": group_config.tab_number_column,
-            "tb_column": group_config.tb_column,
-            "gosb_column": group_config.gosb_column,
-            "fio_column": group_config.fio_column,
-            "indicator_column": group_config.indicator_column,
-            "header_row": group_config.header_row,
-            "skip_rows": group_config.skip_rows,
-            "skip_footer": group_config.skip_footer,
+            "tab_number_column": defaults.tab_number_column,
+            "tb_column": defaults.tb_column,
+            "gosb_column": defaults.gosb_column,
+            "fio_column": defaults.fio_column,
+            "indicator_column": defaults.indicator_column,
+            "header_row": defaults.header_row,
+            "skip_rows": defaults.skip_rows,
+            "skip_footer": defaults.skip_footer,
             "sheet_name": sheet_name,
-            "sheet_index": group_config.sheet_index,
+            "sheet_index": defaults.sheet_index,
+            "calculation_type": calculation_type,
+            "first_month_value": first_month_value,
+            "three_periods_first_months": three_periods_first_months,
             "label": file_item.label if file_item else file_name
         }
         
@@ -1020,10 +1237,11 @@ class FileProcessor:
                 continue
             
             group_config = config_manager.get_group_config(group)
-            tab_col = group_config.tab_number_column
-            tb_col = group_config.tb_column
-            gosb_col = group_config.gosb_column
-            fio_col = group_config.fio_column
+            defaults = group_config.defaults
+            tab_col = defaults.tab_number_column
+            tb_col = defaults.tb_column
+            gosb_col = defaults.gosb_column
+            fio_col = defaults.fio_column
             
             # Сортируем файлы по номеру месяца (от большего к меньшему)
             files_sorted = sorted(
@@ -1133,8 +1351,9 @@ class FileProcessor:
                 if group in self.processed_files and file_name in self.processed_files[group]:
                     df = self.processed_files[group][file_name]
                     group_config = config_manager.get_group_config(group)
-                    tab_col = group_config.tab_number_column
-                    indicator_col = group_config.indicator_column
+                    defaults = group_config.defaults
+                    tab_col = defaults.tab_number_column
+                    indicator_col = defaults.indicator_column
                     
                     # Фильтруем данные по табельному номеру
                     tab_data = df[df[tab_col].astype(str).str.strip() == str(tab_number)]
@@ -1165,6 +1384,127 @@ class FileProcessor:
         self.logger.info(f"Подготовлено {len(result_df)} строк сводных данных", "FileProcessor", "prepare_summary_data")
         
         return result_df
+    
+    def prepare_calculated_data(self, summary_df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Подготавливает данные с расчетами для второго листа.
+        
+        Варианты расчета:
+        1: Как есть - просто сумма
+        2: Прирост по 2 месяцам (текущий - предыдущий)
+        3: Прирост по трем периодам (М-3 - 2*М-2 + М-1)
+        
+        Args:
+            summary_df: DataFrame с исходными данными из prepare_summary_data
+            
+        Returns:
+            pd.DataFrame: DataFrame с расчетными данными
+        """
+        self.logger.info("Начало подготовки расчетных данных", "FileProcessor", "prepare_calculated_data")
+        
+        # Извлекаем номер месяца из имени файла
+        def extract_month_number(file_name: str) -> int:
+            """Извлекает номер месяца из имени файла."""
+            match = re.search(r'M-(\d{1,2})_', file_name)
+            if match:
+                month = int(match.group(1))
+                if 1 <= month <= 12:
+                    return month
+            return 0
+        
+        # Создаем копию базовых данных
+        calculated_df = summary_df.copy()
+        
+        # Базовые колонки
+        base_columns = ["Табельный", "ТБ", "ГОСБ", "ФИО"]
+        
+        # Получаем список всех файлов в порядке обработки
+        all_files: List[Tuple[str, str, str, int]] = []  # (group, file_name, full_name, month)
+        
+        for group in self.groups:
+            if group in self.processed_files:
+                files_sorted = sorted(
+                    self.processed_files[group].keys(),
+                    key=lambda x: extract_month_number(x)
+                )
+                for file_name in files_sorted:
+                    month = extract_month_number(file_name)
+                    full_name = f"{group}_{file_name}"
+                    all_files.append((group, file_name, full_name, month))
+        
+        # Сортируем по группе и месяцу
+        all_files_sorted = sorted(all_files, key=lambda x: (x[0], x[3]))
+        
+        # Для каждой группы обрабатываем файлы по порядку
+        for group in self.groups:
+            group_files = [(g, fn, fname, m) for g, fn, fname, m in all_files_sorted if g == group]
+            if not group_files:
+                continue
+            
+            group_config = config_manager.get_group_config(group)
+            
+            for idx, (g, file_name, full_name, month) in enumerate(group_files):
+                if full_name not in calculated_df.columns:
+                    continue
+                
+                # Получаем конфигурацию для файла
+                file_config = config_manager.get_config_for_file(group, file_name)
+                calc_type = file_config.get("calculation_type", 1)
+                first_month_val = file_config.get("first_month_value", "self")
+                three_periods_mode = file_config.get("three_periods_first_months", "zero_both")
+                
+                if calc_type == 1:
+                    # Вариант 1: Как есть - просто копируем значение
+                    calculated_df[full_name] = summary_df[full_name]
+                
+                elif calc_type == 2:
+                    # Вариант 2: Прирост по 2 месяцам
+                    if idx == 0:
+                        # Первый месяц
+                        if first_month_val == "self":
+                            calculated_df[full_name] = summary_df[full_name]
+                        else:  # "zero"
+                            calculated_df[full_name] = 0
+                    else:
+                        # Текущий месяц минус предыдущий
+                        prev_file_name = group_files[idx - 1][2]
+                        if prev_file_name in summary_df.columns:
+                            calculated_df[full_name] = summary_df[full_name] - summary_df[prev_file_name]
+                        else:
+                            calculated_df[full_name] = summary_df[full_name]
+                
+                elif calc_type == 3:
+                    # Вариант 3: Прирост по трем периодам (М-3 - 2*М-2 + М-1)
+                    if idx == 0:
+                        # Первый месяц
+                        if three_periods_mode == "self_first_diff_second":
+                            calculated_df[full_name] = summary_df[full_name]
+                        else:  # "zero_both" или "zero_first_diff_second"
+                            calculated_df[full_name] = 0
+                    elif idx == 1:
+                        # Второй месяц
+                        if three_periods_mode == "zero_both":
+                            calculated_df[full_name] = 0
+                        else:  # "zero_first_diff_second" или "self_first_diff_second"
+                            prev_file_name = group_files[0][2]
+                            if prev_file_name in summary_df.columns:
+                                calculated_df[full_name] = summary_df[full_name] - summary_df[prev_file_name]
+                            else:
+                                calculated_df[full_name] = summary_df[full_name]
+                    else:
+                        # М-3 - 2*М-2 + М-1
+                        curr_val = summary_df[full_name]
+                        prev1_file_name = group_files[idx - 1][2]
+                        prev2_file_name = group_files[idx - 2][2]
+                        
+                        prev1_val = summary_df[prev1_file_name] if prev1_file_name in summary_df.columns else 0
+                        prev2_val = summary_df[prev2_file_name] if prev2_file_name in summary_df.columns else 0
+                        
+                        calculated_df[full_name] = curr_val - 2 * prev1_val + prev2_val
+        
+        self.logger.info(f"Подготовлено {len(calculated_df)} строк расчетных данных", "FileProcessor", "prepare_calculated_data")
+        
+        return calculated_df
 
 
 # ============================================================================
@@ -1213,40 +1553,43 @@ class ExcelFormatter:
         width = max(self.min_width, min(max_length + 2, self.max_width))
         return width
     
-    def create_formatted_excel(self, df: pd.DataFrame, output_path: str, sheet_name: str = "Данные") -> None:
+    def create_formatted_excel(self, summary_df: pd.DataFrame, calculated_df: pd.DataFrame, output_path: str) -> None:
         """
         Создает новый Excel файл с форматированием используя только базовые модули Anaconda.
         Приоритет: openpyxl > xlsxwriter > без форматирования
         
         Args:
-            df: DataFrame с данными
+            summary_df: DataFrame с исходными данными (первый лист)
+            calculated_df: DataFrame с расчетными данными (второй лист)
             output_path: Путь для сохранения файла
-            sheet_name: Название листа
         """
         self.logger.info(f"Создание форматированного Excel файла {output_path}", "ExcelFormatter", "create_formatted_excel")
         
         try:
             if OPENPYXL_AVAILABLE:
                 # Используем openpyxl для форматирования (приоритетный вариант)
-                self._create_with_openpyxl(df, output_path, sheet_name)
+                self._create_with_openpyxl(summary_df, calculated_df, output_path)
             elif XLSXWRITER_AVAILABLE:
                 # Используем xlsxwriter для форматирования (если openpyxl недоступен)
-                self._create_with_xlsxwriter(df, output_path, sheet_name)
+                self._create_with_xlsxwriter(summary_df, calculated_df, output_path)
             else:
                 # Используем pandas ExcelWriter без форматирования
                 self.logger.warning("openpyxl и xlsxwriter недоступны, создается файл без форматирования", "ExcelFormatter", "create_formatted_excel")
                 # Пробуем использовать доступный engine
                 try:
                     with pd.ExcelWriter(output_path, engine='openpyxl') as writer:
-                        df.to_excel(writer, sheet_name=sheet_name, index=False)
+                        summary_df.to_excel(writer, sheet_name="Данные", index=False)
+                        calculated_df.to_excel(writer, sheet_name="Расчеты", index=False)
                 except:
                     try:
                         with pd.ExcelWriter(output_path, engine='xlsxwriter') as writer:
-                            df.to_excel(writer, sheet_name=sheet_name, index=False)
+                            summary_df.to_excel(writer, sheet_name="Данные", index=False)
+                            calculated_df.to_excel(writer, sheet_name="Расчеты", index=False)
                     except:
                         # Если не получилось, используем любой доступный engine
                         with pd.ExcelWriter(output_path) as writer:
-                            df.to_excel(writer, sheet_name=sheet_name, index=False)
+                            summary_df.to_excel(writer, sheet_name="Данные", index=False)
+                            calculated_df.to_excel(writer, sheet_name="Расчеты", index=False)
                 self.logger.info(f"Файл {output_path} создан без форматирования", "ExcelFormatter", "create_formatted_excel")
             
         except Exception as e:
@@ -1254,39 +1597,58 @@ class ExcelFormatter:
             # Пробуем создать без форматирования
             try:
                 with pd.ExcelWriter(output_path) as writer:
-                    df.to_excel(writer, sheet_name=sheet_name, index=False)
+                    summary_df.to_excel(writer, sheet_name="Данные", index=False)
+                    calculated_df.to_excel(writer, sheet_name="Расчеты", index=False)
                 self.logger.warning(f"Файл создан без форматирования из-за ошибки: {str(e)}", "ExcelFormatter", "create_formatted_excel")
             except Exception as e2:
                 self.logger.error(f"Критическая ошибка при создании файла: {str(e2)}", "ExcelFormatter", "create_formatted_excel")
                 raise
     
-    def _create_with_openpyxl(self, df: pd.DataFrame, output_path: str, sheet_name: str = "Данные") -> None:
+    def _create_with_openpyxl(self, summary_df: pd.DataFrame, calculated_df: pd.DataFrame, output_path: str) -> None:
         """
         Создает Excel файл с форматированием используя openpyxl.
         
         Args:
-            df: DataFrame с данными
+            summary_df: DataFrame с исходными данными
+            calculated_df: DataFrame с расчетными данными
             output_path: Путь для сохранения файла
-            sheet_name: Название листа
         """
         self.logger.info(f"Использование openpyxl для форматирования", "ExcelFormatter", "_create_with_openpyxl")
         
         # Сначала сохраняем DataFrame в Excel через pandas
         with pd.ExcelWriter(output_path, engine='openpyxl') as writer:
-            df.to_excel(writer, sheet_name=sheet_name, index=False)
+            summary_df.to_excel(writer, sheet_name="Данные", index=False)
+            calculated_df.to_excel(writer, sheet_name="Расчеты", index=False)
         
         # Теперь форматируем файл
         wb = load_workbook(output_path)
         
-        if sheet_name not in wb.sheetnames:
-            self.logger.warning(f"Лист {sheet_name} не найден, используем первый лист", "ExcelFormatter", "_create_with_openpyxl")
-            ws = wb.active
-        else:
+        # Форматируем оба листа
+        for sheet_name in ["Данные", "Расчеты"]:
+            if sheet_name not in wb.sheetnames:
+                continue
+            
             ws = wb[sheet_name]
+            self._format_sheet_openpyxl(ws, summary_df if sheet_name == "Данные" else calculated_df)
         
-        # Фиксируем первую строку
-        ws.freeze_panes = "A2"
-        self.logger.debug("Первая строка зафиксирована", "ExcelFormatter", "_create_with_openpyxl")
+        # Сохраняем файл
+        wb.save(output_path)
+        self.logger.info(f"Файл {output_path} успешно создан с форматированием (openpyxl)", "ExcelFormatter", "_create_with_openpyxl")
+    
+    def _format_sheet_openpyxl(self, ws, df: pd.DataFrame) -> None:
+        """
+        Форматирует лист Excel используя openpyxl.
+        
+        Args:
+            ws: Рабочий лист openpyxl
+            df: DataFrame с данными
+        """
+        
+        # Фиксируем первую строку и 4 колонку (после ФИО)
+        # freeze_panes использует адрес ячейки, начиная с которой будет прокрутка
+        # E2 означает: строка 2 (заголовок зафиксирован), колонка E (5-я, после ФИО)
+        ws.freeze_panes = "E2"
+        self.logger.debug("Первая строка и 4 колонка зафиксированы", "ExcelFormatter", "_format_sheet_openpyxl")
         
         # Форматируем заголовки (первая строка)
         header_fill = PatternFill(start_color="D3D3D3", end_color="D3D3D3", fill_type="solid")
@@ -1352,28 +1714,46 @@ class ExcelFormatter:
                     else:
                         cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
         
-        self.logger.debug("Выравнивание и форматирование настроены", "ExcelFormatter", "_create_with_openpyxl")
+        self.logger.debug("Выравнивание и форматирование настроены", "ExcelFormatter", "_format_sheet_openpyxl")
         
         # Включаем автофильтр
         ws.auto_filter.ref = ws.dimensions
-        self.logger.debug("Автофильтр включен", "ExcelFormatter", "_create_with_openpyxl")
-        
-        # Сохраняем файл
-        wb.save(output_path)
-        self.logger.info(f"Файл {output_path} успешно создан с форматированием (openpyxl)", "ExcelFormatter", "_create_with_openpyxl")
+        self.logger.debug("Автофильтр включен", "ExcelFormatter", "_format_sheet_openpyxl")
     
-    def _create_with_xlsxwriter(self, df: pd.DataFrame, output_path: str, sheet_name: str = "Данные") -> None:
+    def _create_with_xlsxwriter(self, summary_df: pd.DataFrame, calculated_df: pd.DataFrame, output_path: str) -> None:
         """
         Создает Excel файл с форматированием используя xlsxwriter.
         
         Args:
-            df: DataFrame с данными
+            summary_df: DataFrame с исходными данными
+            calculated_df: DataFrame с расчетными данными
             output_path: Путь для сохранения файла
-            sheet_name: Название листа
         """
         # Создаем рабочую книгу
         workbook = xlsxwriter.Workbook(output_path)
-        worksheet = workbook.add_worksheet(sheet_name)
+        
+        # Создаем листы
+        worksheet_data = workbook.add_worksheet("Данные")
+        worksheet_calc = workbook.add_worksheet("Расчеты")
+        
+        # Форматируем оба листа
+        self._format_sheet_xlsxwriter(workbook, worksheet_data, summary_df)
+        self._format_sheet_xlsxwriter(workbook, worksheet_calc, calculated_df)
+        
+        # Закрываем рабочую книгу
+        workbook.close()
+        
+        self.logger.info(f"Файл {output_path} успешно создан с форматированием (xlsxwriter)", "ExcelFormatter", "_create_with_xlsxwriter")
+    
+    def _format_sheet_xlsxwriter(self, workbook, worksheet, df: pd.DataFrame) -> None:
+        """
+        Форматирует лист Excel используя xlsxwriter.
+        
+        Args:
+            workbook: Рабочая книга xlsxwriter
+            worksheet: Рабочий лист xlsxwriter
+            df: DataFrame с данными
+        """
         
         # Формат для заголовков
         header_format = workbook.add_format({
@@ -1443,16 +1823,12 @@ class ExcelFormatter:
                     else:
                         worksheet.write(row_idx, col_idx, 0, number_format)
         
-        # Фиксируем первую строку
-        worksheet.freeze_panes(1, 0)
+        # Фиксируем первую строку и 4 колонку (после ФИО)
+        # freeze_panes(row, col) - строка 1 (индекс 1), колонка 4 (индекс 4, после ФИО)
+        worksheet.freeze_panes(1, 4)
         
         # Включаем автофильтр
         worksheet.autofilter(0, 0, len(df), len(df.columns) - 1)
-        
-        # Закрываем рабочую книгу
-        workbook.close()
-        
-        self.logger.info(f"Файл {output_path} успешно создан с форматированием", "ExcelFormatter", "_create_with_xlsxwriter")
 
 
 # ============================================================================
@@ -1495,6 +1871,10 @@ def main():
             logger.error("Сводные данные пусты, обработка завершена", "main", "main")
             return
         
+        # Подготавливаем расчетные данные
+        logger.info("Этап 4: Подготовка расчетных данных", "main", "main")
+        calculated_df = processor.prepare_calculated_data(summary_df)
+        
         # Формируем имя выходного файла с датой и временем
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         output_file = output_path / f"Сводные_данные_{timestamp}.xlsx"
@@ -1502,9 +1882,9 @@ def main():
         # Создаем форматтер
         formatter = ExcelFormatter(logger_instance=logger)
         
-        # Сохраняем данные в Excel с форматированием
-        logger.info(f"Этап 4: Сохранение результата в {output_file}", "main", "main")
-        formatter.create_formatted_excel(summary_df, str(output_file), sheet_name="Данные")
+        # Сохраняем данные в Excel с форматированием (два листа)
+        logger.info(f"Этап 5: Сохранение результата в {output_file}", "main", "main")
+        formatter.create_formatted_excel(summary_df, calculated_df, str(output_file))
         
         logger.info("=" * 80, "main", "main")
         logger.info(f"Обработка завершена успешно. Результат сохранен в: {output_file}", "main", "main")
