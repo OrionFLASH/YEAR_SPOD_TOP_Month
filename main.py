@@ -161,6 +161,28 @@ class FileItem:
     # "self_first_diff_second" - первый равен самому себе, второй равен разнице между вторым и первым
     # None - использовать default из группы
     three_periods_first_months: Optional[str] = None
+    
+    # Параметры расчета ранга для колонки
+    # Уровень расчета ранга: "BANK" - по всему списку, "TB" - среди КМ с таким же ТБ, "GOSB" - среди КМ с таким же ТБ и ГОСБ
+    # None - использовать default из группы
+    rank_level: Optional[str] = None
+    
+    # Условие отсечки для расчета ранга: "all" - все, ">=", "<=", "<>", "==" и число
+    # None - использовать default из группы
+    rank_condition: Optional[str] = None
+    
+    # Значение для условия отсечки (используется если rank_condition не "all")
+    # None - использовать default из группы
+    rank_condition_value: Optional[float] = None
+    
+    # Порядок ранга: "MIN" - меньшее значение имеет меньший ранг (чем меньше тем лучше)
+    # "MAX" - большее значение имеет больший ранг (чем больше тем лучше)
+    # None - использовать default из группы
+    rank_order: Optional[str] = None
+    
+    # Метод обработки одинаковых значений: "skip" - 1,2,3,3,3,6,7 (пропуск мест) или "dense" - 1,2,3,3,3,4,5,6,7 (плотный)
+    # None - использовать default из группы
+    rank_tie_method: Optional[str] = None
 
 
 @dataclass
@@ -203,6 +225,23 @@ class DefaultsConfig:
     # Правила для первого и второго месяца при расчете типа 3
     # "zero_both", "zero_first_diff_second", "self_first_diff_second"
     three_periods_first_months: str = "zero_both"
+    
+    # Параметры расчета ранга для колонок на втором листе
+    # Уровень расчета ранга: "BANK" - по всему списку, "TB" - среди КМ с таким же ТБ, "GOSB" - среди КМ с таким же ТБ и ГОСБ
+    rank_level: str = "BANK"
+    
+    # Условие отсечки для расчета ранга: "all" - все, ">=", "<=", "<>", "==" и число
+    rank_condition: str = "all"
+    
+    # Значение для условия отсечки (используется если rank_condition не "all")
+    rank_condition_value: Optional[float] = None
+    
+    # Порядок ранга: "MIN" - меньшее значение имеет меньший ранг (чем меньше тем лучше)
+    # "MAX" - большее значение имеет больший ранг (чем больше тем лучше)
+    rank_order: str = "MAX"
+    
+    # Метод обработки одинаковых значений: "skip" - 1,2,3,3,3,6,7 (пропуск мест) или "dense" - 1,2,3,3,3,4,5,6,7 (плотный)
+    rank_tie_method: str = "skip"
 
 
 @dataclass
@@ -248,22 +287,28 @@ class ConfigManager:
                 # - calculation_type: 1, 2, 3 или None (использовать default)
                 # - first_month_value: "self", "zero" или None (использовать default)
                 # - three_periods_first_months: "zero_both", "zero_first_diff_second", "self_first_diff_second" или None (использовать default)
+                # - rank_level: "BANK", "TB", "GOSB" или None (использовать default)
+                # - rank_condition: "all", ">=", "<=", ">", "<", "==", "<>" или None (использовать default)
+                # - rank_condition_value: число или None (использовать default)
+                # - rank_order: "MIN", "MAX" или None (использовать default)
+                # - rank_tie_method: "skip", "dense" или None (использовать default)
                 # Примеры:
                 #   FileItem(..., calculation_type=2, first_month_value="zero")  # Для этого файла тип 2, первый месяц = 0
                 #   FileItem(..., calculation_type=3, three_periods_first_months="self_first_diff_second")  # Для этого файла тип 3 с особыми правилами
+                #   FileItem(..., rank_level="TB", rank_condition=">=", rank_condition_value=0)  # Ранг по ТБ, только >=0
                 # Если параметры не указаны (None), используются значения из defaults
-                FileItem(key="OD_01", label="OD Январь", file_name="M-1_OD.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}, calculation_type=None, first_month_value=None, three_periods_first_months=None),
-                FileItem(key="OD_02", label="OD Февраль", file_name="M-2_OD.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}, calculation_type=None, first_month_value=None, three_periods_first_months=None),
-                FileItem(key="OD_03", label="OD Март", file_name="M-3_OD.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}, calculation_type=None, first_month_value=None, three_periods_first_months=None),
-                FileItem(key="OD_04", label="OD Апрель", file_name="M-4_OD.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}, calculation_type=None, first_month_value=None, three_periods_first_months=None),
-                FileItem(key="OD_05", label="OD Май", file_name="M-5_OD.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}, calculation_type=None, first_month_value=None, three_periods_first_months=None),
-                FileItem(key="OD_06", label="OD Июнь", file_name="M-6_OD.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}, calculation_type=None, first_month_value=None, three_periods_first_months=None),
-                FileItem(key="OD_07", label="OD Июль", file_name="M-7_OD.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}, calculation_type=None, first_month_value=None, three_periods_first_months=None),
-                FileItem(key="OD_08", label="OD Август", file_name="M-8_OD.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}, calculation_type=None, first_month_value=None, three_periods_first_months=None),
-                FileItem(key="OD_09", label="OD Сентябрь", file_name="M-9_OD.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}, calculation_type=None, first_month_value=None, three_periods_first_months=None),
-                FileItem(key="OD_10", label="OD Октябрь", file_name="M-10_OD.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}, calculation_type=None, first_month_value=None, three_periods_first_months=None),
-                FileItem(key="OD_11", label="OD Ноябрь", file_name="M-11_OD.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}, calculation_type=None, first_month_value=None, three_periods_first_months=None),
-                FileItem(key="OD_12", label="OD Декабрь", file_name="M-12_OD.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}, calculation_type=None, first_month_value=None, three_periods_first_months=None),
+                FileItem(key="OD_01", label="OD Январь", file_name="M-1_OD.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}, calculation_type=None, first_month_value=None, three_periods_first_months=None, rank_level=None, rank_condition=None, rank_condition_value=None, rank_order=None, rank_tie_method=None),
+                FileItem(key="OD_02", label="OD Февраль", file_name="M-2_OD.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}, calculation_type=None, first_month_value=None, three_periods_first_months=None, rank_level=None, rank_condition=None, rank_condition_value=None, rank_order=None, rank_tie_method=None),
+                FileItem(key="OD_03", label="OD Март", file_name="M-3_OD.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}, calculation_type=None, first_month_value=None, three_periods_first_months=None, rank_level=None, rank_condition=None, rank_condition_value=None, rank_order=None, rank_tie_method=None),
+                FileItem(key="OD_04", label="OD Апрель", file_name="M-4_OD.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}, calculation_type=None, first_month_value=None, three_periods_first_months=None, rank_level=None, rank_condition=None, rank_condition_value=None, rank_order=None, rank_tie_method=None),
+                FileItem(key="OD_05", label="OD Май", file_name="M-5_OD.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}, calculation_type=None, first_month_value=None, three_periods_first_months=None, rank_level=None, rank_condition=None, rank_condition_value=None, rank_order=None, rank_tie_method=None),
+                FileItem(key="OD_06", label="OD Июнь", file_name="M-6_OD.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}, calculation_type=None, first_month_value=None, three_periods_first_months=None, rank_level=None, rank_condition=None, rank_condition_value=None, rank_order=None, rank_tie_method=None),
+                FileItem(key="OD_07", label="OD Июль", file_name="M-7_OD.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}, calculation_type=None, first_month_value=None, three_periods_first_months=None, rank_level=None, rank_condition=None, rank_condition_value=None, rank_order=None, rank_tie_method=None),
+                FileItem(key="OD_08", label="OD Август", file_name="M-8_OD.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}, calculation_type=None, first_month_value=None, three_periods_first_months=None, rank_level=None, rank_condition=None, rank_condition_value=None, rank_order=None, rank_tie_method=None),
+                FileItem(key="OD_09", label="OD Сентябрь", file_name="M-9_OD.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}, calculation_type=None, first_month_value=None, three_periods_first_months=None, rank_level=None, rank_condition=None, rank_condition_value=None, rank_order=None, rank_tie_method=None),
+                FileItem(key="OD_10", label="OD Октябрь", file_name="M-10_OD.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}, calculation_type=None, first_month_value=None, three_periods_first_months=None, rank_level=None, rank_condition=None, rank_condition_value=None, rank_order=None, rank_tie_method=None),
+                FileItem(key="OD_11", label="OD Ноябрь", file_name="M-11_OD.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}, calculation_type=None, first_month_value=None, three_periods_first_months=None, rank_level=None, rank_condition=None, rank_condition_value=None, rank_order=None, rank_tie_method=None),
+                FileItem(key="OD_12", label="OD Декабрь", file_name="M-12_OD.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}, calculation_type=None, first_month_value=None, three_periods_first_months=None, rank_level=None, rank_condition=None, rank_condition_value=None, rank_order=None, rank_tie_method=None),
             ],
             defaults=DefaultsConfig(
                 # Колонки по умолчанию: маппинг source (имя в Excel) -> alias (внутреннее имя)
@@ -351,7 +396,34 @@ class ConfigManager:
                 #     Пример: М-1 = 0, М-2 = М-2 - М-1, М-3 = М-3 - 2*М-2 + М-1
                 #   "self_first_diff_second" - первый равен самому себе, второй равен разнице между вторым и первым
                 #     Пример: М-1 = М-1 (сумма), М-2 = М-2 - М-1, М-3 = М-3 - 2*М-2 + М-1
-                three_periods_first_months="self_first_diff_second"
+                three_periods_first_months="self_first_diff_second",
+                
+                # Параметры расчета ранга для колонок на втором листе
+                # Уровень расчета ранга (rank_level):
+                #   "BANK" - по всему списку (все КМ)
+                #   "TB" - среди КМ с таким же ТБ
+                #   "GOSB" - среди КМ с таким же ТБ и ГОСБ
+                rank_level="BANK",
+                
+                # Условие отсечки для расчета ранга (rank_condition):
+                #   "all" - все значения участвуют в расчете ранга
+                #   ">=", "<=", ">", "<", "==", "<>" - условие сравнения с rank_condition_value
+                rank_condition="all",
+                
+                # Значение для условия отсечки (rank_condition_value):
+                #   Используется если rank_condition не "all"
+                #   None - условие не применяется
+                rank_condition_value=None,
+                
+                # Порядок ранга (rank_order):
+                #   "MIN" - меньшее значение имеет меньший ранг (чем меньше тем лучше)
+                #   "MAX" - большее значение имеет больший ранг (чем больше тем лучше)
+                rank_order="MAX",
+                
+                # Метод обработки одинаковых значений (rank_tie_method):
+                #   "skip" - пропуск мест: 1,2,3,3,3,6,7 (одинаковые имеют одно место, следующий пропускает места)
+                #   "dense" - плотный ранг: 1,2,3,3,3,4,5,6,7 (одинаковые имеют одно место, следующий идет по порядку)
+                rank_tie_method="skip"
             )
         )
         
@@ -364,22 +436,28 @@ class ConfigManager:
                 # - calculation_type: 1, 2, 3 или None (использовать default)
                 # - first_month_value: "self", "zero" или None (использовать default)
                 # - three_periods_first_months: "zero_both", "zero_first_diff_second", "self_first_diff_second" или None (использовать default)
+                # - rank_level: "BANK", "TB", "GOSB" или None (использовать default)
+                # - rank_condition: "all", ">=", "<=", ">", "<", "==", "<>" или None (использовать default)
+                # - rank_condition_value: число или None (использовать default)
+                # - rank_order: "MIN", "MAX" или None (использовать default)
+                # - rank_tie_method: "skip", "dense" или None (использовать default)
                 # Примеры:
                 #   FileItem(..., calculation_type=2, first_month_value="zero")  # Для этого файла тип 2, первый месяц = 0
                 #   FileItem(..., calculation_type=3, three_periods_first_months="self_first_diff_second")  # Для этого файла тип 3 с особыми правилами
+                #   FileItem(..., rank_level="TB", rank_condition=">=", rank_condition_value=0)  # Ранг по ТБ, только >=0
                 # Если параметры не указаны (None), используются значения из defaults
-                FileItem(key="RA_01", label="RA Январь", file_name="M-1_RA.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
-                FileItem(key="RA_02", label="RA Февраль", file_name="M-2_RA.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
-                FileItem(key="RA_03", label="RA Март", file_name="M-3_RA.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
-                FileItem(key="RA_04", label="RA Апрель", file_name="M-4_RA.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
-                FileItem(key="RA_05", label="RA Май", file_name="M-5_RA.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
-                FileItem(key="RA_06", label="RA Июнь", file_name="M-6_RA.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
-                FileItem(key="RA_07", label="RA Июль", file_name="M-7_RA.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
-                FileItem(key="RA_08", label="RA Август", file_name="M-8_RA.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
-                FileItem(key="RA_09", label="RA Сентябрь", file_name="M-9_RA.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
-                FileItem(key="RA_10", label="RA Октябрь", file_name="M-10_RA.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
-                FileItem(key="RA_11", label="RA Ноябрь", file_name="M-11_RA.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
-                FileItem(key="RA_12", label="RA Декабрь", file_name="M-12_RA.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
+                FileItem(key="RA_01", label="RA Январь", file_name="M-1_RA.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}, calculation_type=None, first_month_value=None, three_periods_first_months=None, rank_level=None, rank_condition=None, rank_condition_value=None, rank_order=None, rank_tie_method=None),
+                FileItem(key="RA_02", label="RA Февраль", file_name="M-2_RA.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}, calculation_type=None, first_month_value=None, three_periods_first_months=None, rank_level=None, rank_condition=None, rank_condition_value=None, rank_order=None, rank_tie_method=None),
+                FileItem(key="RA_03", label="RA Март", file_name="M-3_RA.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}, calculation_type=None, first_month_value=None, three_periods_first_months=None, rank_level=None, rank_condition=None, rank_condition_value=None, rank_order=None, rank_tie_method=None),
+                FileItem(key="RA_04", label="RA Апрель", file_name="M-4_RA.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}, calculation_type=None, first_month_value=None, three_periods_first_months=None, rank_level=None, rank_condition=None, rank_condition_value=None, rank_order=None, rank_tie_method=None),
+                FileItem(key="RA_05", label="RA Май", file_name="M-5_RA.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}, calculation_type=None, first_month_value=None, three_periods_first_months=None, rank_level=None, rank_condition=None, rank_condition_value=None, rank_order=None, rank_tie_method=None),
+                FileItem(key="RA_06", label="RA Июнь", file_name="M-6_RA.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}, calculation_type=None, first_month_value=None, three_periods_first_months=None, rank_level=None, rank_condition=None, rank_condition_value=None, rank_order=None, rank_tie_method=None),
+                FileItem(key="RA_07", label="RA Июль", file_name="M-7_RA.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}, calculation_type=None, first_month_value=None, three_periods_first_months=None, rank_level=None, rank_condition=None, rank_condition_value=None, rank_order=None, rank_tie_method=None),
+                FileItem(key="RA_08", label="RA Август", file_name="M-8_RA.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}, calculation_type=None, first_month_value=None, three_periods_first_months=None, rank_level=None, rank_condition=None, rank_condition_value=None, rank_order=None, rank_tie_method=None),
+                FileItem(key="RA_09", label="RA Сентябрь", file_name="M-9_RA.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}, calculation_type=None, first_month_value=None, three_periods_first_months=None, rank_level=None, rank_condition=None, rank_condition_value=None, rank_order=None, rank_tie_method=None),
+                FileItem(key="RA_10", label="RA Октябрь", file_name="M-10_RA.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}, calculation_type=None, first_month_value=None, three_periods_first_months=None, rank_level=None, rank_condition=None, rank_condition_value=None, rank_order=None, rank_tie_method=None),
+                FileItem(key="RA_11", label="RA Ноябрь", file_name="M-11_RA.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}, calculation_type=None, first_month_value=None, three_periods_first_months=None, rank_level=None, rank_condition=None, rank_condition_value=None, rank_order=None, rank_tie_method=None),
+                FileItem(key="RA_12", label="RA Декабрь", file_name="M-12_RA.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}, calculation_type=None, first_month_value=None, three_periods_first_months=None, rank_level=None, rank_condition=None, rank_condition_value=None, rank_order=None, rank_tie_method=None),
             ],
             defaults=DefaultsConfig(
                 # Колонки по умолчанию: маппинг source (имя в Excel) -> alias (внутреннее имя)
@@ -467,7 +545,34 @@ class ConfigManager:
                 #     Пример: М-1 = 0, М-2 = М-2 - М-1, М-3 = М-3 - 2*М-2 + М-1
                 #   "self_first_diff_second" - первый равен самому себе, второй равен разнице между вторым и первым
                 #     Пример: М-1 = М-1 (сумма), М-2 = М-2 - М-1, М-3 = М-3 - 2*М-2 + М-1
-                three_periods_first_months="self_first_diff_second"
+                three_periods_first_months="self_first_diff_second",
+                
+                # Параметры расчета ранга для колонок на втором листе
+                # Уровень расчета ранга (rank_level):
+                #   "BANK" - по всему списку (все КМ)
+                #   "TB" - среди КМ с таким же ТБ
+                #   "GOSB" - среди КМ с таким же ТБ и ГОСБ
+                rank_level="GOSB",
+                
+                # Условие отсечки для расчета ранга (rank_condition):
+                #   "all" - все значения участвуют в расчете ранга
+                #   ">=", "<=", ">", "<", "==", "<>" - условие сравнения с rank_condition_value
+                rank_condition="all",
+                
+                # Значение для условия отсечки (rank_condition_value):
+                #   Используется если rank_condition не "all"
+                #   None - условие не применяется
+                rank_condition_value=None,
+                
+                # Порядок ранга (rank_order):
+                #   "MIN" - меньшее значение имеет меньший ранг (чем меньше тем лучше)
+                #   "MAX" - большее значение имеет больший ранг (чем больше тем лучше)
+                rank_order="MIN",
+                
+                # Метод обработки одинаковых значений (rank_tie_method):
+                #   "skip" - пропуск мест: 1,2,3,3,3,6,7 (одинаковые имеют одно место, следующий пропускает места)
+                #   "dense" - плотный ранг: 1,2,3,3,3,4,5,6,7 (одинаковые имеют одно место, следующий идет по порядку)
+                rank_tie_method="skip"
             )
         )
         
@@ -480,22 +585,28 @@ class ConfigManager:
                 # - calculation_type: 1, 2, 3 или None (использовать default)
                 # - first_month_value: "self", "zero" или None (использовать default)
                 # - three_periods_first_months: "zero_both", "zero_first_diff_second", "self_first_diff_second" или None (использовать default)
+                # - rank_level: "BANK", "TB", "GOSB" или None (использовать default)
+                # - rank_condition: "all", ">=", "<=", ">", "<", "==", "<>" или None (использовать default)
+                # - rank_condition_value: число или None (использовать default)
+                # - rank_order: "MIN", "MAX" или None (использовать default)
+                # - rank_tie_method: "skip", "dense" или None (использовать default)
                 # Примеры:
                 #   FileItem(..., calculation_type=2, first_month_value="zero")  # Для этого файла тип 2, первый месяц = 0
                 #   FileItem(..., calculation_type=3, three_periods_first_months="self_first_diff_second")  # Для этого файла тип 3 с особыми правилами
+                #   FileItem(..., rank_level="TB", rank_condition=">=", rank_condition_value=0)  # Ранг по ТБ, только >=0
                 # Если параметры не указаны (None), используются значения из defaults
-                FileItem(key="PS_01", label="PS Январь", file_name="M-1_PS.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
-                FileItem(key="PS_02", label="PS Февраль", file_name="M-2_PS.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
-                FileItem(key="PS_03", label="PS Март", file_name="M-3_PS.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
-                FileItem(key="PS_04", label="PS Апрель", file_name="M-4_PS.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
-                FileItem(key="PS_05", label="PS Май", file_name="M-5_PS.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
-                FileItem(key="PS_06", label="PS Июнь", file_name="M-6_PS.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
-                FileItem(key="PS_07", label="PS Июль", file_name="M-7_PS.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
-                FileItem(key="PS_08", label="PS Август", file_name="M-8_PS.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
-                FileItem(key="PS_09", label="PS Сентябрь", file_name="M-9_PS.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
-                FileItem(key="PS_10", label="PS Октябрь", file_name="M-10_PS.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
-                FileItem(key="PS_11", label="PS Ноябрь", file_name="M-11_PS.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
-                FileItem(key="PS_12", label="PS Декабрь", file_name="M-12_PS.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}),
+                FileItem(key="PS_01", label="PS Январь", file_name="M-1_PS.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}, calculation_type=None, first_month_value=None, three_periods_first_months=None, rank_level=None, rank_condition=None, rank_condition_value=None, rank_order=None, rank_tie_method=None),
+                FileItem(key="PS_02", label="PS Февраль", file_name="M-2_PS.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}, calculation_type=None, first_month_value=None, three_periods_first_months=None, rank_level=None, rank_condition=None, rank_condition_value=None, rank_order=None, rank_tie_method=None),
+                FileItem(key="PS_03", label="PS Март", file_name="M-3_PS.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}, calculation_type=None, first_month_value=None, three_periods_first_months=None, rank_level=None, rank_condition=None, rank_condition_value=None, rank_order=None, rank_tie_method=None),
+                FileItem(key="PS_04", label="PS Апрель", file_name="M-4_PS.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}, calculation_type=None, first_month_value=None, three_periods_first_months=None, rank_level=None, rank_condition=None, rank_condition_value=None, rank_order=None, rank_tie_method=None),
+                FileItem(key="PS_05", label="PS Май", file_name="M-5_PS.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}, calculation_type=None, first_month_value=None, three_periods_first_months=None, rank_level=None, rank_condition=None, rank_condition_value=None, rank_order=None, rank_tie_method=None),
+                FileItem(key="PS_06", label="PS Июнь", file_name="M-6_PS.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}, calculation_type=None, first_month_value=None, three_periods_first_months=None, rank_level=None, rank_condition=None, rank_condition_value=None, rank_order=None, rank_tie_method=None),
+                FileItem(key="PS_07", label="PS Июль", file_name="M-7_PS.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}, calculation_type=None, first_month_value=None, three_periods_first_months=None, rank_level=None, rank_condition=None, rank_condition_value=None, rank_order=None, rank_tie_method=None),
+                FileItem(key="PS_08", label="PS Август", file_name="M-8_PS.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}, calculation_type=None, first_month_value=None, three_periods_first_months=None, rank_level=None, rank_condition=None, rank_condition_value=None, rank_order=None, rank_tie_method=None),
+                FileItem(key="PS_09", label="PS Сентябрь", file_name="M-9_PS.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}, calculation_type=None, first_month_value=None, three_periods_first_months=None, rank_level=None, rank_condition=None, rank_condition_value=None, rank_order=None, rank_tie_method=None),
+                FileItem(key="PS_10", label="PS Октябрь", file_name="M-10_PS.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}, calculation_type=None, first_month_value=None, three_periods_first_months=None, rank_level=None, rank_condition=None, rank_condition_value=None, rank_order=None, rank_tie_method=None),
+                FileItem(key="PS_11", label="PS Ноябрь", file_name="M-11_PS.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}, calculation_type=None, first_month_value=None, three_periods_first_months=None, rank_level=None, rank_condition=None, rank_condition_value=None, rank_order=None, rank_tie_method=None),
+                FileItem(key="PS_12", label="PS Декабрь", file_name="M-12_PS.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}, calculation_type=None, first_month_value=None, three_periods_first_months=None, rank_level=None, rank_condition=None, rank_condition_value=None, rank_order=None, rank_tie_method=None),
             ],
             defaults=DefaultsConfig(
                 # Колонки по умолчанию: маппинг source (имя в Excel) -> alias (внутреннее имя)
@@ -583,7 +694,34 @@ class ConfigManager:
                 #     Пример: М-1 = 0, М-2 = М-2 - М-1, М-3 = М-3 - 2*М-2 + М-1
                 #   "self_first_diff_second" - первый равен самому себе, второй равен разнице между вторым и первым
                 #     Пример: М-1 = М-1 (сумма), М-2 = М-2 - М-1, М-3 = М-3 - 2*М-2 + М-1
-                three_periods_first_months="self_first_diff_second"
+                three_periods_first_months="self_first_diff_second",
+                
+                # Параметры расчета ранга для колонок на втором листе
+                # Уровень расчета ранга (rank_level):
+                #   "BANK" - по всему списку (все КМ)
+                #   "TB" - среди КМ с таким же ТБ
+                #   "GOSB" - среди КМ с таким же ТБ и ГОСБ
+                rank_level="TB",
+                
+                # Условие отсечки для расчета ранга (rank_condition):
+                #   "all" - все значения участвуют в расчете ранга
+                #   ">=", "<=", ">", "<", "==", "<>" - условие сравнения с rank_condition_value
+                rank_condition=">=",
+                
+                # Значение для условия отсечки (rank_condition_value):
+                #   Используется если rank_condition не "all"
+                #   None - условие не применяется
+                rank_condition_value=0,
+                
+                # Порядок ранга (rank_order):
+                #   "MIN" - меньшее значение имеет меньший ранг (чем меньше тем лучше)
+                #   "MAX" - большее значение имеет больший ранг (чем больше тем лучше)
+                rank_order="MAX",
+                
+                # Метод обработки одинаковых значений (rank_tie_method):
+                #   "skip" - пропуск мест: 1,2,3,3,3,6,7 (одинаковые имеют одно место, следующий пропускает места)
+                #   "dense" - плотный ранг: 1,2,3,3,3,4,5,6,7 (одинаковые имеют одно место, следующий идет по порядку)
+                rank_tie_method="dense"
             )
         )
 
@@ -681,6 +819,13 @@ class ConfigManager:
         # Правила для первого и второго месяца при расчете типа 3: если в item есть three_periods_first_months, используем его, иначе default
         three_periods_first_months = file_item.three_periods_first_months if file_item and file_item.three_periods_first_months is not None else defaults.three_periods_first_months
         
+        # Параметры расчета ранга: если в item есть, используем их, иначе defaults
+        rank_level = file_item.rank_level if file_item and file_item.rank_level is not None else defaults.rank_level
+        rank_condition = file_item.rank_condition if file_item and file_item.rank_condition is not None else defaults.rank_condition
+        rank_condition_value = file_item.rank_condition_value if file_item and file_item.rank_condition_value is not None else defaults.rank_condition_value
+        rank_order = file_item.rank_order if file_item and file_item.rank_order is not None else defaults.rank_order
+        rank_tie_method = file_item.rank_tie_method if file_item and file_item.rank_tie_method is not None else defaults.rank_tie_method
+        
         result = {
             "columns": columns,
             "drop_rules": drop_rules,
@@ -698,6 +843,11 @@ class ConfigManager:
             "calculation_type": calculation_type,
             "first_month_value": first_month_value,
             "three_periods_first_months": three_periods_first_months,
+            "rank_level": rank_level,
+            "rank_condition": rank_condition,
+            "rank_condition_value": rank_condition_value,
+            "rank_order": rank_order,
+            "rank_tie_method": rank_tie_method,
             "label": file_item.label if file_item else file_name
         }
         
@@ -1301,7 +1451,7 @@ class FileProcessor:
         Returns:
             pd.DataFrame: DataFrame со сводными данными
         """
-        self.logger.info("Начало подготовки сводных данных", "FileProcessor", "prepare_summary_data")
+        self.logger.info("=== Начало подготовки сводных данных для листа 'Данные' ===", "FileProcessor", "prepare_summary_data")
         
         if not self.unique_tab_numbers:
             self.logger.warning("Уникальные табельные номера не собраны", "FileProcessor", "prepare_summary_data")
@@ -1321,6 +1471,7 @@ class FileProcessor:
         # Порядок: для каждой группы (OD, RA, PS) файлы сортируются по месяцам (M-1, M-2, ..., M-12)
         all_files: List[Tuple[str, str, str]] = []  # (group, file_name, full_name)
         
+        # Логируем информацию о группах и месяцах
         for group in self.groups:
             if group in self.processed_files:
                 # Сортируем файлы по номеру месяца (1-12)
@@ -1328,14 +1479,25 @@ class FileProcessor:
                     self.processed_files[group].keys(),
                     key=lambda x: extract_month_number(x)
                 )
+                months_list = [extract_month_number(fn) for fn in files_sorted]
+                self.logger.info(f"Лист 'Данные': Группа {group}, обрабатываем месяцы: {months_list} (M-{min(months_list)} ... M-{max(months_list)})", "FileProcessor", "prepare_summary_data")
                 for file_name in files_sorted:
                     full_name = f"{group}_{file_name}"
                     all_files.append((group, file_name, full_name))
         
+        self.logger.info(f"Лист 'Данные': Всего колонок для обработки: {len(all_files)} (базовые: Табельный, ТБ, ГОСБ, ФИО + данные по группам и месяцам)", "FileProcessor", "prepare_summary_data")
+        
         # Создаем структуру данных
         result_data = []
+        total_tab_numbers = len(self.unique_tab_numbers)
+        self.logger.info(f"Лист 'Данные': Начало обработки {total_tab_numbers} уникальных табельных номеров", "FileProcessor", "prepare_summary_data")
         
+        processed_count = 0
         for tab_number, tab_info in self.unique_tab_numbers.items():
+            processed_count += 1
+            # Логируем прогресс каждые 100 записей или в начале/конце
+            if processed_count == 1 or processed_count % 100 == 0 or processed_count == total_tab_numbers:
+                self.logger.info(f"Лист 'Данные': Обработано {processed_count} из {total_tab_numbers} табельных номеров ({processed_count * 100 // total_tab_numbers if total_tab_numbers > 0 else 0}%)", "FileProcessor", "prepare_summary_data")
             # Форматируем табельный номер: 8 знаков с лидирующими нулями
             tab_number_formatted = str(tab_number).zfill(8) if tab_number else "00000000"
             
@@ -1367,9 +1529,12 @@ class FileProcessor:
             
             result_data.append(row)
         
+        self.logger.info(f"Лист 'Данные': Завершена обработка всех табельных номеров, формирование DataFrame из {len(result_data)} строк", "FileProcessor", "prepare_summary_data")
         result_df = pd.DataFrame(result_data)
+        self.logger.info(f"Лист 'Данные': DataFrame создан, размер: {len(result_df)} строк x {len(result_df.columns)} колонок", "FileProcessor", "prepare_summary_data")
         
         # Упорядочиваем колонки: сначала базовые, потом по группам и месяцам
+        self.logger.info("Лист 'Данные': Упорядочивание колонок", "FileProcessor", "prepare_summary_data")
         base_columns = ["Табельный", "ТБ", "ГОСБ", "ФИО"]
         data_columns = [full_name for _, _, full_name in all_files]
         ordered_columns = base_columns + data_columns
@@ -1381,7 +1546,9 @@ class FileProcessor:
         final_columns = existing_columns + other_columns
         
         result_df = result_df[final_columns]
-        self.logger.info(f"Подготовлено {len(result_df)} строк сводных данных", "FileProcessor", "prepare_summary_data")
+        self.logger.info(f"Лист 'Данные': Колонки упорядочены, итоговое количество: {len(result_df.columns)}", "FileProcessor", "prepare_summary_data")
+        self.logger.info(f"Лист 'Данные': Подготовлено {len(result_df)} строк сводных данных, колонок: {len(result_df.columns)}", "FileProcessor", "prepare_summary_data")
+        self.logger.info("=== Завершена подготовка сводных данных для листа 'Данные' ===", "FileProcessor", "prepare_summary_data")
         
         return result_df
     
@@ -1400,7 +1567,7 @@ class FileProcessor:
         Returns:
             pd.DataFrame: DataFrame с расчетными данными
         """
-        self.logger.info("Начало подготовки расчетных данных", "FileProcessor", "prepare_calculated_data")
+        self.logger.info("=== Начало подготовки расчетных данных для листа 'Расчеты' ===", "FileProcessor", "prepare_calculated_data")
         
         # Извлекаем номер месяца из имени файла
         def extract_month_number(file_name: str) -> int:
@@ -1412,11 +1579,61 @@ class FileProcessor:
                     return month
             return 0
         
+        # Функция для генерации понятного имени колонки на основе типа расчета
+        def generate_column_name(group: str, month: int, calc_type: int, 
+                                 prev_month: Optional[int] = None, 
+                                 prev2_month: Optional[int] = None) -> str:
+            """
+            Генерирует понятное имя колонки в формате: OD (M-1) [как считалось]
+            
+            Args:
+                group: Название группы (OD, RA, PS)
+                month: Номер текущего месяца
+                calc_type: Тип расчета (1, 2, 3)
+                prev_month: Номер предыдущего месяца (для типа 2 и 3)
+                prev2_month: Номер пред-предыдущего месяца (для типа 3)
+                
+            Returns:
+                str: Понятное имя колонки в формате "OD (M-1) [описание расчета]"
+            """
+            month_str = f"M-{month}"
+            period_part = f"{group} ({month_str})"
+            
+            if calc_type == 1:
+                # Тип 1: Как есть - просто факт
+                return f"{period_part} [факт]"
+            elif calc_type == 2:
+                # Тип 2: Прирост по 2 месяцам
+                if prev_month is not None:
+                    prev_month_str = f"M-{prev_month}"
+                    return f"{period_part} [{month_str}→{prev_month_str}]"
+                else:
+                    # Первый месяц
+                    return f"{period_part} [факт]"
+            elif calc_type == 3:
+                # Тип 3: Прирост по трем периодам
+                if prev_month is not None and prev2_month is not None:
+                    prev_month_str = f"M-{prev_month}"
+                    prev2_month_str = f"M-{prev2_month}"
+                    return f"{period_part} [{month_str}-2*{prev_month_str}+{prev2_month_str}]"
+                elif prev_month is not None:
+                    # Второй месяц
+                    prev_month_str = f"M-{prev_month}"
+                    return f"{period_part} [{month_str}→{prev_month_str}]"
+                else:
+                    # Первый месяц
+                    return f"{period_part} [факт]"
+            else:
+                return f"{period_part} [факт]"
+        
         # Создаем копию базовых данных
         calculated_df = summary_df.copy()
         
         # Базовые колонки
         base_columns = ["Табельный", "ТБ", "ГОСБ", "ФИО"]
+        
+        # Словарь для переименования колонок
+        rename_dict = {}
         
         # Получаем список всех файлов в порядке обработки
         all_files: List[Tuple[str, str, str, int]] = []  # (group, file_name, full_name, month)
@@ -1441,6 +1658,7 @@ class FileProcessor:
             if not group_files:
                 continue
             
+            self.logger.info(f"Лист 'Расчеты': Обработка группы {group}, файлов: {len(group_files)}", "FileProcessor", "prepare_calculated_data")
             group_config = config_manager.get_group_config(group)
             
             for idx, (g, file_name, full_name, month) in enumerate(group_files):
@@ -1452,6 +1670,40 @@ class FileProcessor:
                 calc_type = file_config.get("calculation_type", 1)
                 first_month_val = file_config.get("first_month_value", "self")
                 three_periods_mode = file_config.get("three_periods_first_months", "zero_both")
+                
+                # Определяем предыдущие месяцы для генерации имени
+                prev_month = None
+                prev2_month = None
+                
+                if calc_type == 2 and idx > 0:
+                    prev_month = group_files[idx - 1][3]
+                elif calc_type == 3:
+                    if idx > 0:
+                        prev_month = group_files[idx - 1][3]
+                    if idx > 1:
+                        prev2_month = group_files[idx - 2][3]
+                
+                # Генерируем понятное имя колонки
+                new_name = generate_column_name(group, month, calc_type, prev_month, prev2_month)
+                rename_dict[full_name] = new_name
+                
+                # Логируем информацию о типе расчета
+                calc_type_names = {1: "Как есть (факт)", 2: "Прирост по 2 месяцам", 3: "Прирост по трем периодам"}
+                calc_desc = calc_type_names.get(calc_type, f"Тип {calc_type}")
+                if calc_type == 2:
+                    if idx == 0:
+                        calc_desc += f", первый месяц: {first_month_val}"
+                    else:
+                        calc_desc += f", M-{month} - M-{prev_month}"
+                elif calc_type == 3:
+                    if idx == 0:
+                        calc_desc += f", режим: {three_periods_mode}"
+                    elif idx == 1:
+                        calc_desc += f", режим: {three_periods_mode}, M-{month} - M-{prev_month}"
+                    else:
+                        calc_desc += f", M-{month} - 2*M-{prev_month} + M-{prev2_month}"
+                
+                self.logger.info(f"Лист 'Расчеты': Группа {group}, месяц M-{month}, тип расчета: {calc_desc}, колонка: {new_name}", "FileProcessor", "prepare_calculated_data")
                 
                 if calc_type == 1:
                     # Вариант 1: Как есть - просто копируем значение
@@ -1502,7 +1754,247 @@ class FileProcessor:
                         
                         calculated_df[full_name] = curr_val - 2 * prev1_val + prev2_val
         
-        self.logger.info(f"Подготовлено {len(calculated_df)} строк расчетных данных", "FileProcessor", "prepare_calculated_data")
+        # Переименовываем колонки на понятные имена (только те, которые существуют в DataFrame)
+        existing_rename_dict = {k: v for k, v in rename_dict.items() if k in calculated_df.columns}
+        calculated_df = calculated_df.rename(columns=existing_rename_dict)
+        self.logger.info(f"Лист 'Расчеты': Переименовано колонок: {len(existing_rename_dict)}", "FileProcessor", "prepare_calculated_data")
+        
+        # Рассчитываем ранги для каждой колонки с данными
+        calculated_df = self._calculate_ranks(calculated_df, all_files_sorted, config_manager)
+        
+        self.logger.info(f"Лист 'Расчеты': Подготовлено {len(calculated_df)} строк расчетных данных, колонок: {len(calculated_df.columns)}", "FileProcessor", "prepare_calculated_data")
+        self.logger.info("=== Завершена подготовка расчетных данных для листа 'Расчеты' ===", "FileProcessor", "prepare_calculated_data")
+        
+        return calculated_df
+    
+    def _calculate_ranks(self, calculated_df: pd.DataFrame, all_files_sorted: List[Tuple[str, str, str, int]], 
+                        config_manager) -> pd.DataFrame:
+        """
+        Рассчитывает ранги для каждой колонки с данными на втором листе.
+        
+        Args:
+            calculated_df: DataFrame с расчетными данными
+            all_files_sorted: Отсортированный список файлов (group, file_name, full_name, month)
+            config_manager: Менеджер конфигурации
+        """
+        self.logger.info("=== Начало расчета рангов для листа 'Расчеты' ===", "FileProcessor", "_calculate_ranks")
+        
+        # Базовые колонки
+        base_columns = ["Табельный", "ТБ", "ГОСБ", "ФИО"]
+        
+        # Получаем колонки с данными (не базовые и не ранги)
+        data_columns = [col for col in calculated_df.columns if col not in base_columns and not col.startswith("R:")]
+        
+        self.logger.info(f"Лист 'Расчеты': Расчет рангов для {len(data_columns)} колонок", "FileProcessor", "_calculate_ranks")
+        
+        # Для каждой колонки с данными рассчитываем ранг
+        rank_count = 0
+        for col_name in data_columns:
+            rank_count += 1
+            self.logger.info(f"Лист 'Расчеты': Расчет ранга {rank_count} из {len(data_columns)} для колонки '{col_name}'", "FileProcessor", "_calculate_ranks")
+            # Определяем группу и месяц из имени колонки
+            # Формат: "OD (M-1) [факт]" или "OD (M-2) [M-2→M-1]"
+            match = re.search(r'^([A-Z]+)\s+\(M-(\d{1,2})\)', col_name)
+            if not match:
+                self.logger.warning(f"Лист 'Расчеты': Не удалось определить группу и месяц из имени колонки '{col_name}', пропускаем", "FileProcessor", "_calculate_ranks")
+                continue
+            
+            group = match.group(1)
+            month = int(match.group(2))
+            
+            # Находим соответствующий файл в списке
+            file_info = None
+            for g, fn, fname, m in all_files_sorted:
+                if g == group and m == month:
+                    file_info = (g, fn, fname, m)
+                    break
+            
+            if not file_info:
+                continue
+            
+            g, file_name, full_name, m = file_info
+            
+            # Получаем конфигурацию для файла
+            file_config = config_manager.get_config_for_file(group, file_name)
+            rank_level = file_config.get("rank_level", "BANK")
+            rank_condition = file_config.get("rank_condition", "all")
+            rank_condition_value = file_config.get("rank_condition_value")
+            rank_order = file_config.get("rank_order", "MAX")
+            rank_tie_method = file_config.get("rank_tie_method", "skip")
+            
+            # Логируем параметры расчета ранга
+            condition_str = rank_condition
+            if rank_condition != "all" and rank_condition_value is not None:
+                condition_str = f"{rank_condition}{rank_condition_value}"
+            else:
+                condition_str = "all"
+            
+            self.logger.info(f"Лист 'Расчеты': Расчет ранга для колонки '{col_name}' - уровень: {rank_level}, условие: {condition_str}, порядок: {rank_order}, метод одинаковых: {rank_tie_method}", "FileProcessor", "_calculate_ranks")
+            
+            # Получаем имена колонок для группировки
+            defaults = config_manager.get_group_config(group).defaults
+            tb_col = defaults.tb_column
+            gosb_col = defaults.gosb_column
+            
+            # Создаем копию данных для расчета ранга
+            rank_df = calculated_df[[col_name] + base_columns].copy()
+            
+            # Применяем условие отсечки
+            if rank_condition != "all" and rank_condition_value is not None:
+                if rank_condition == ">=":
+                    mask = rank_df[col_name] >= rank_condition_value
+                elif rank_condition == "<=":
+                    mask = rank_df[col_name] <= rank_condition_value
+                elif rank_condition == ">":
+                    mask = rank_df[col_name] > rank_condition_value
+                elif rank_condition == "<":
+                    mask = rank_df[col_name] < rank_condition_value
+                elif rank_condition == "==":
+                    mask = rank_df[col_name] == rank_condition_value
+                elif rank_condition == "<>":
+                    mask = rank_df[col_name] != rank_condition_value
+                else:
+                    mask = pd.Series([True] * len(rank_df), index=rank_df.index)
+            else:
+                mask = pd.Series([True] * len(rank_df), index=rank_df.index)
+            
+            # Инициализируем ранг нулями
+            rank_series = pd.Series(0, index=rank_df.index)
+            
+            # Группируем по уровню
+            if rank_level == "BANK":
+                # По всему списку
+                groups = [rank_df.index]
+            elif rank_level == "TB":
+                # По ТБ
+                if tb_col in rank_df.columns:
+                    groups = rank_df.groupby(tb_col).groups.values()
+                else:
+                    groups = [rank_df.index]
+            elif rank_level == "GOSB":
+                # По ТБ и ГОСБ
+                if tb_col in rank_df.columns and gosb_col in rank_df.columns:
+                    groups = rank_df.groupby([tb_col, gosb_col]).groups.values()
+                elif tb_col in rank_df.columns:
+                    groups = rank_df.groupby(tb_col).groups.values()
+                else:
+                    groups = [rank_df.index]
+            else:
+                groups = [rank_df.index]
+            
+            # Рассчитываем ранг для каждой группы
+            for group_indices in groups:
+                # Фильтруем по условию и группе
+                group_mask = mask[group_indices]
+                group_data = rank_df.loc[group_indices, col_name]
+                
+                # Применяем условие
+                if rank_condition != "all":
+                    valid_indices = group_data[group_mask].index
+                else:
+                    valid_indices = group_data.index
+                
+                if len(valid_indices) == 0:
+                    continue
+                
+                # Получаем значения для ранжирования
+                values_to_rank = group_data.loc[valid_indices]
+                
+                # Сортируем в зависимости от порядка
+                # Ранг 1 - лучший (меньший номер ранга = лучше)
+                # Для MAX: большее значение = лучше = ранг 1, сортируем по убыванию (самое большое первое)
+                # Для MIN: меньшее значение = лучше = ранг 1, сортируем по возрастанию (самое маленькое первое)
+                if rank_order == "MAX":
+                    # Больше = лучше, сортируем по убыванию (самое большое первое)
+                    sorted_values = values_to_rank.sort_values(ascending=False)
+                else:  # MIN
+                    # Меньше = лучше, сортируем по возрастанию (самое маленькое первое)
+                    sorted_values = values_to_rank.sort_values(ascending=True)
+                
+                # Присваиваем ранги
+                # Первое значение в отсортированном списке получает ранг 1 (лучший ранг)
+                if rank_tie_method == "dense":
+                    # Плотный ранг: 1,2,3,3,3,4,5,6,7
+                    # Группируем по значениям и присваиваем последовательные номера начиная с 1
+                    # Первое значение в отсортированном списке получает ранг 1
+                    unique_values = sorted_values.unique()
+                    rank_map = {}
+                    current_rank = 1
+                    for val in unique_values:
+                        indices = sorted_values[sorted_values == val].index
+                        for idx in indices:
+                            rank_map[idx] = current_rank
+                        current_rank += 1
+                    ranks = pd.Series(rank_map, dtype=int)
+                else:  # skip
+                    # Пропуск мест: 1,2,3,3,3,6,7
+                    # Используем метод 'min' для одинаковых значений
+                    # rank() с ascending=True: меньшее значение получает меньший ранг (ранг 1)
+                    # rank() с ascending=False: большее значение получает меньший ранг (ранг 1)
+                    # Для MAX: sorted_values отсортирован по убыванию, большее первое, нужно ascending=False
+                    # Для MIN: sorted_values отсортирован по возрастанию, меньшее первое, нужно ascending=True
+                    rank_ascending = (rank_order == "MIN")
+                    ranks = sorted_values.rank(method='min', ascending=rank_ascending).astype(int)
+                
+                # Присваиваем ранги обратно
+                for idx, rank_val in ranks.items():
+                    rank_series.loc[idx] = int(rank_val)
+            
+            # Формируем имя колонки ранга
+            # Извлекаем только группу и месяц из имени колонки (без описания расчета)
+            # Формат col_name: "OD (M-1) [факт]" или "OD (M-3) [M-3-2*M-2+M-1]"
+            # Нужно: "OD (M-1)" или "OD (M-3)" - все до первой квадратной скобки
+            base_col_name = col_name.split(" [")[0] if " [" in col_name else col_name
+            
+            condition_str = rank_condition
+            if rank_condition != "all" and rank_condition_value is not None:
+                condition_str = f"{rank_condition}{rank_condition_value}"
+            
+            rank_col_name = f"R: {base_col_name} [{rank_level}, {condition_str}, {rank_order}]"
+            
+            # Добавляем колонку с рангом
+            calculated_df[rank_col_name] = rank_series
+            
+            # Логируем результат расчета ранга
+            non_zero_ranks = (rank_series != 0).sum()
+            self.logger.info(f"Лист 'Расчеты': Ранг рассчитан для колонки '{col_name}' -> '{rank_col_name}', ненулевых рангов: {non_zero_ranks} из {len(rank_series)}", "FileProcessor", "_calculate_ranks")
+            
+            # Сохраняем соответствие между колонкой данных и её рангом для переупорядочивания в конце
+            pass  # Переупорядочивание будет сделано в конце метода
+        
+        # Переупорядочиваем все колонки: каждая колонка ранга сразу после своей исходной колонки
+        self.logger.info("Лист 'Расчеты': Переупорядочивание колонок (ранг после исходной колонки)", "FileProcessor", "_calculate_ranks")
+        cols = list(calculated_df.columns)
+        base_columns = ["Табельный", "ТБ", "ГОСБ", "ФИО"]
+        new_cols = base_columns.copy()
+        
+        # Для каждой колонки с данными добавляем её и её ранг (если есть)
+        data_columns = [col for col in cols if col not in base_columns and not col.startswith("R:")]
+        rank_columns = {col: col for col in cols if col.startswith("R:")}
+        self.logger.info(f"Лист 'Расчеты': Переупорядочивание: {len(data_columns)} колонок данных, {len(rank_columns)} колонок ранга", "FileProcessor", "_calculate_ranks")
+        
+        for data_col in data_columns:
+            new_cols.append(data_col)
+            # Ищем соответствующий ранг по началу имени
+            # Формат ранга: "R: OD (M-1) [BANK, all, MAX]"
+            # Формат данных: "OD (M-1) [факт]" или "OD (M-3) [M-3-2*M-2+M-1]"
+            # Извлекаем базовую часть из имени колонки данных (группа и месяц)
+            base_data_col = data_col.split(" [")[0] if " [" in data_col else data_col
+            rank_prefix = f"R: {base_data_col} ["
+            for rank_col in rank_columns:
+                if rank_col.startswith(rank_prefix):
+                    new_cols.append(rank_col)
+                    del rank_columns[rank_col]
+                    break
+        
+        # Добавляем оставшиеся колонки ранга (если есть)
+        for rank_col in rank_columns:
+            new_cols.append(rank_col)
+        
+        calculated_df = calculated_df[new_cols]
+        
+        self.logger.info(f"Лист 'Расчеты': Завершен расчет рангов, всего колонок с рангами: {len([c for c in calculated_df.columns if c.startswith('R:')])}", "FileProcessor", "_calculate_ranks")
+        self.logger.info("=== Завершен расчет рангов для листа 'Расчеты' ===", "FileProcessor", "_calculate_ranks")
         
         return calculated_df
 
@@ -1692,6 +2184,8 @@ class ExcelFormatter:
         
         # Формат для чисел: разделитель разрядов и два знака после запятой
         number_format = "#,##0.00"
+        # Формат для рангов: целое число с разделителем разрядов (без дробной части)
+        rank_format = "#,##0"
         # Текстовый формат для сохранения лидирующих нулей
         text_format = "@"
         
@@ -1706,6 +2200,13 @@ class ExcelFormatter:
                 # Если это другие базовые колонки - текстовое выравнивание
                 elif col_name in base_columns:
                     cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+                # Если это колонка ранга (начинается с "R:") - целое число с разделителем разрядов
+                elif col_name and col_name.startswith("R:"):
+                    if pd.notna(cell.value) and isinstance(cell.value, (int, float)):
+                        cell.number_format = rank_format
+                        cell.alignment = Alignment(horizontal="right", vertical="center")
+                    else:
+                        cell.alignment = Alignment(horizontal="right", vertical="center")
                 else:
                     # Для числовых колонок - числовой формат и выравнивание по правому краю
                     if pd.notna(cell.value) and isinstance(cell.value, (int, float)):
@@ -1786,6 +2287,13 @@ class ExcelFormatter:
             'valign': 'vcenter'
         })
         
+        # Формат для рангов: целое число с разделителем разрядов (без дробной части)
+        rank_format = workbook.add_format({
+            'num_format': '#,##0',
+            'align': 'right',
+            'valign': 'vcenter'
+        })
+        
         # Определяем базовые колонки (текстовые)
         base_columns = ["Табельный", "ТБ", "ГОСБ", "ФИО"]
         
@@ -1814,6 +2322,12 @@ class ExcelFormatter:
                         worksheet.write(row_idx, col_idx, value, text_format)
                     else:
                         worksheet.write(row_idx, col_idx, '', text_format)
+                elif col_name and col_name.startswith("R:"):
+                    # Колонка ранга: целое число с разделителем разрядов
+                    if pd.notna(value) and isinstance(value, (int, float)):
+                        worksheet.write(row_idx, col_idx, int(value), rank_format)
+                    else:
+                        worksheet.write(row_idx, col_idx, 0, rank_format)
                 else:
                     # Числовые колонки
                     if pd.notna(value) and isinstance(value, (int, float)):
