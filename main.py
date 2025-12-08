@@ -1089,12 +1089,28 @@ class FileProcessor:
             self.logger.warning("Уникальные табельные номера не собраны", "FileProcessor", "prepare_summary_data")
             self.collect_unique_tab_numbers()
         
+        # Извлекаем номер месяца из имени файла для сортировки
+        def extract_month_number(file_name: str) -> int:
+            """Извлекает номер месяца из имени файла."""
+            match = re.search(r'M-(\d{1,2})_', file_name)
+            if match:
+                month = int(match.group(1))
+                if 1 <= month <= 12:
+                    return month
+            return 0
+        
         # Создаем список всех файлов в порядке обработки
+        # Порядок: для каждой группы (OD, RA, PS) файлы сортируются по месяцам (M-1, M-2, ..., M-12)
         all_files: List[Tuple[str, str, str]] = []  # (group, file_name, full_name)
         
         for group in self.groups:
             if group in self.processed_files:
-                for file_name in sorted(self.processed_files[group].keys()):
+                # Сортируем файлы по номеру месяца (1-12)
+                files_sorted = sorted(
+                    self.processed_files[group].keys(),
+                    key=lambda x: extract_month_number(x)
+                )
+                for file_name in files_sorted:
                     full_name = f"{group}_{file_name}"
                     all_files.append((group, file_name, full_name))
         
@@ -1102,8 +1118,11 @@ class FileProcessor:
         result_data = []
         
         for tab_number, tab_info in self.unique_tab_numbers.items():
+            # Форматируем табельный номер: 8 знаков с лидирующими нулями
+            tab_number_formatted = str(tab_number).zfill(8) if tab_number else "00000000"
+            
             row = {
-                "Табельный": tab_number,
+                "Табельный": tab_number_formatted,
                 "ТБ": tab_info["tb"],
                 "ГОСБ": tab_info["gosb"],
                 "ФИО": tab_info["fio"]
@@ -1130,6 +1149,19 @@ class FileProcessor:
             result_data.append(row)
         
         result_df = pd.DataFrame(result_data)
+        
+        # Упорядочиваем колонки: сначала базовые, потом по группам и месяцам
+        base_columns = ["Табельный", "ТБ", "ГОСБ", "ФИО"]
+        data_columns = [full_name for _, _, full_name in all_files]
+        ordered_columns = base_columns + data_columns
+        
+        # Оставляем только существующие колонки
+        existing_columns = [col for col in ordered_columns if col in result_df.columns]
+        # Добавляем колонки, которых нет в списке (на случай если что-то пропущено)
+        other_columns = [col for col in result_df.columns if col not in existing_columns]
+        final_columns = existing_columns + other_columns
+        
+        result_df = result_df[final_columns]
         self.logger.info(f"Подготовлено {len(result_df)} строк сводных данных", "FileProcessor", "prepare_summary_data")
         
         return result_df
@@ -1292,12 +1324,35 @@ class ExcelFormatter:
             
             self.logger.debug(f"Колонка {col_letter} установлена ширина {width}", "ExcelFormatter", "_create_with_openpyxl")
         
-        # Настраиваем выравнивание и перенос текста для всех ячеек
-        for row in ws.iter_rows(min_row=2):
-            for cell in row:
-                cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+        # Настраиваем выравнивание и форматирование для всех ячеек
+        # Определяем базовые колонки (текстовые)
+        base_columns = ["Табельный", "ТБ", "ГОСБ", "ФИО"]
         
-        self.logger.debug("Выравнивание и перенос текста настроены", "ExcelFormatter", "_create_with_openpyxl")
+        # Формат для чисел: разделитель разрядов и два знака после запятой
+        number_format = "#,##0.00"
+        # Текстовый формат для сохранения лидирующих нулей
+        text_format = "@"
+        
+        for row_idx, row in enumerate(ws.iter_rows(min_row=2), start=2):
+            for col_idx, cell in enumerate(row, start=1):
+                col_name = ws.cell(row=1, column=col_idx).value
+                
+                # Если это колонка "Табельный" - текстовый формат для сохранения лидирующих нулей
+                if col_name == "Табельный":
+                    cell.number_format = text_format
+                    cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+                # Если это другие базовые колонки - текстовое выравнивание
+                elif col_name in base_columns:
+                    cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+                else:
+                    # Для числовых колонок - числовой формат и выравнивание по правому краю
+                    if pd.notna(cell.value) and isinstance(cell.value, (int, float)):
+                        cell.number_format = number_format
+                        cell.alignment = Alignment(horizontal="right", vertical="center")
+                    else:
+                        cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+        
+        self.logger.debug("Выравнивание и форматирование настроены", "ExcelFormatter", "_create_with_openpyxl")
         
         # Включаем автофильтр
         ws.auto_filter.ref = ws.dimensions
@@ -1330,12 +1385,29 @@ class ExcelFormatter:
             'bg_color': '#D3D3D3'
         })
         
-        # Формат для данных
-        data_format = workbook.add_format({
+        # Формат для текстовых данных
+        text_format = workbook.add_format({
             'align': 'left',
             'valign': 'vcenter',
             'text_wrap': True
         })
+        
+        # Формат для колонки "Табельный": текстовый формат для сохранения лидирующих нулей
+        tab_number_format = workbook.add_format({
+            'num_format': '@',  # Текстовый формат
+            'align': 'left',
+            'valign': 'vcenter'
+        })
+        
+        # Формат для числовых данных: разделитель разрядов и два знака после запятой
+        number_format = workbook.add_format({
+            'num_format': '#,##0.00',
+            'align': 'right',
+            'valign': 'vcenter'
+        })
+        
+        # Определяем базовые колонки (текстовые)
+        base_columns = ["Табельный", "ТБ", "ГОСБ", "ФИО"]
         
         # Записываем заголовки
         for col_idx, col_name in enumerate(df.columns):
@@ -1347,10 +1419,29 @@ class ExcelFormatter:
         # Записываем данные
         for row_idx, (_, row) in enumerate(df.iterrows(), start=1):
             for col_idx, value in enumerate(row):
-                if pd.notna(value):
-                    worksheet.write(row_idx, col_idx, value, data_format)
+                col_name = df.columns[col_idx]
+                
+                # Выбираем формат в зависимости от типа колонки
+                if col_name == "Табельный":
+                    # Колонка "Табельный": текстовый формат для сохранения лидирующих нулей
+                    if pd.notna(value):
+                        worksheet.write(row_idx, col_idx, str(value), tab_number_format)
+                    else:
+                        worksheet.write(row_idx, col_idx, '', tab_number_format)
+                elif col_name in base_columns:
+                    # Другие текстовые колонки
+                    if pd.notna(value):
+                        worksheet.write(row_idx, col_idx, value, text_format)
+                    else:
+                        worksheet.write(row_idx, col_idx, '', text_format)
                 else:
-                    worksheet.write(row_idx, col_idx, '', data_format)
+                    # Числовые колонки
+                    if pd.notna(value) and isinstance(value, (int, float)):
+                        worksheet.write(row_idx, col_idx, value, number_format)
+                    elif pd.notna(value):
+                        worksheet.write(row_idx, col_idx, value, text_format)
+                    else:
+                        worksheet.write(row_idx, col_idx, 0, number_format)
         
         # Фиксируем первую строку
         worksheet.freeze_panes(1, 0)
