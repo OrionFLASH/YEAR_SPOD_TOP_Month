@@ -243,12 +243,11 @@ class DefaultsConfig:
     # Метод обработки одинаковых значений: "skip" - 1,2,3,3,3,6,7 (пропуск мест) или "dense" - 1,2,3,3,3,4,5,6,7 (плотный)
     rank_tie_method: str = "skip"
     
-    # Веса для расчета итогового ранга R_FIN
+    # Вес для расчета итогового ранга R_FIN (для данной группы)
     # Итоговый ранг = R: OD * weight_od + R: RA * weight_ra + R: PS * weight_ps
+    # В каждом разделе (OD, RA, PS) задается только свой вес
     # Можно задать как число (0.33) или как строку с формулой ("1/3")
-    weight_od: float = 0.33
-    weight_ra: float = 0.33
-    weight_ps: float = 0.34
+    weight: float = 0.33
 
 
 @dataclass
@@ -581,13 +580,12 @@ class ConfigManager:
                 #   "dense" - плотный ранг: 1,2,3,3,3,4,5,6,7 (одинаковые имеют одно место, следующий идет по порядку)
                 rank_tie_method="skip",
                 
-                # Веса для расчета итогового ранга R_FIN
+                # Вес для расчета итогового ранга R_FIN (только для группы RA)
                 # Итоговый ранг = R: OD * weight_od + R: RA * weight_ra + R: PS * weight_ps
+                # В каждом разделе задается только свой вес
                 # Можно задать как число (0.33) или как строку с формулой ("1/3")
-                # Сумма весов должна быть равна 1.0 (или близка к 1.0)
-                weight_od=0.33,
-                weight_ra=0.33,
-                weight_ps=0.34
+                # Сумма весов всех групп должна быть равна 1.0 (или близка к 1.0)
+                weight=0.33  # Вес для группы RA
             )
         )
         
@@ -738,13 +736,12 @@ class ConfigManager:
                 #   "dense" - плотный ранг: 1,2,3,3,3,4,5,6,7 (одинаковые имеют одно место, следующий идет по порядку)
                 rank_tie_method="dense",
                 
-                # Веса для расчета итогового ранга R_FIN
+                # Вес для расчета итогового ранга R_FIN (только для группы PS)
                 # Итоговый ранг = R: OD * weight_od + R: RA * weight_ra + R: PS * weight_ps
-                # Можно задать как число (0.33) или как строку с формулой ("1/3")
-                # Сумма весов должна быть равна 1.0 (или близка к 1.0)
-                weight_od=0.33,
-                weight_ra=0.33,
-                weight_ps=0.34
+                # В каждом разделе задается только свой вес
+                # Можно задать как число (0.34) или как строку с формулой ("1/3")
+                # Сумма весов всех групп должна быть равна 1.0 (или близка к 1.0)
+                weight=0.34  # Вес для группы PS
             )
         )
 
@@ -1357,28 +1354,36 @@ class FileProcessor:
         
         # Порядок приоритета групп
         group_priority = {"OD": 1, "RA": 2, "PS": 3}
+
+        # ОПТИМИЗАЦИЯ: Кэш для номеров месяцев
+        month_cache = {}
         
         # Извлекаем номер месяца из имени файла
         def extract_month_number(file_name: str) -> int:
             """
             Извлекает номер месяца из имени файла.
-            
+
             Поддерживает форматы:
             - M-{номер}_{группа}.xlsx (например, M-1_RA.xlsx, M-12_OD.xlsx)
             - {группа}_{номер}.xlsx (например, RA_01.xlsx, OD_12.xlsx)
             - T-{номер} (например, T-11, T-0) - где T-11 = январь, T-0 = декабрь
-            
+
             Args:
                 file_name: Имя файла
                 
             Returns:
                 int: Номер месяца (1-12) или 0, если не удалось определить
             """
+            # ОПТИМИЗАЦИЯ: Проверяем кэш
+            if file_name in month_cache:
+                return month_cache[file_name]
+            
             # Паттерн для формата M-{номер}_{группа}.xlsx
             match = re.search(r'M-(\d{1,2})_', file_name)
             if match:
                 month = int(match.group(1))
                 if 1 <= month <= 12:
+                    month_cache[file_name] = month
                     return month
             
             # Паттерн для формата {группа}_{номер}.xlsx (например, RA_01.xlsx)
@@ -1386,6 +1391,7 @@ class FileProcessor:
             if match:
                 month = int(match.group(1))
                 if 1 <= month <= 12:
+                    month_cache[file_name] = month
                     return month
             
             # Паттерн для формата T-{номер} (T-11 = январь, T-0 = декабрь)
@@ -1396,10 +1402,13 @@ class FileProcessor:
                 if 0 <= t_value <= 11:
                     month = 12 - t_value
                     if 1 <= month <= 12:
+                        month_cache[file_name] = month
                         return month
             
             # Если не нашли, возвращаем 0 (низкий приоритет)
-            return 0
+            result = 0
+            month_cache[file_name] = result
+            return result
         
         # Собираем все табельные номера с информацией о файлах
         all_tab_data: Dict[str, Dict[str, Any]] = {}
@@ -1431,9 +1440,20 @@ class FileProcessor:
                     self.logger.warning(f"Колонка '{tab_col}' не найдена в файле {file_name}", "FileProcessor", "collect_unique_tab_numbers")
                     continue
                 
-                # Обрабатываем каждую строку
-                for idx, row in df.iterrows():
-                    tab_number = str(row[tab_col]).strip() if pd.notna(row[tab_col]) else None
+                # ОПТИМИЗАЦИЯ: Нормализуем табельные номера один раз для всего DataFrame
+                df_normalized = df.copy()
+                df_normalized[tab_col] = df_normalized[tab_col].astype(str).str.strip()
+                df_normalized = df_normalized[df_normalized[tab_col] != 'nan']
+                df_normalized = df_normalized[df_normalized[tab_col] != '']
+                
+                if len(df_normalized) == 0:
+                    continue
+                
+                # ОПТИМИЗАЦИЯ: Используем itertuples() вместо iterrows() - в 10-100 раз быстрее
+                current_priority = group_priority[group] * 100 + month
+                
+                for row in df_normalized.itertuples():
+                    tab_number = getattr(row, tab_col)
                     
                     if not tab_number or tab_number == 'nan':
                         continue
@@ -1442,21 +1462,20 @@ class FileProcessor:
                     if tab_number not in all_tab_data:
                         all_tab_data[tab_number] = {
                             "tab_number": tab_number,
-                            "tb": row[tb_col] if tb_col in df.columns and pd.notna(row[tb_col]) else "",
-                            "gosb": row[gosb_col] if gosb_col in df.columns and pd.notna(row[gosb_col]) else "",
-                            "fio": row[fio_col] if fio_col in df.columns and pd.notna(row[fio_col]) else "",
+                            "tb": getattr(row, tb_col, "") if tb_col in df.columns else "",
+                            "gosb": getattr(row, gosb_col, "") if gosb_col in df.columns else "",
+                            "fio": getattr(row, fio_col, "") if fio_col in df.columns else "",
                             "group": group,
                             "month": month,
-                            "priority": group_priority[group] * 100 + month  # Комбинированный приоритет
+                            "priority": current_priority
                         }
                     else:
                         # Проверяем, нужно ли обновить данные
-                        current_priority = group_priority[group] * 100 + month
                         if current_priority < all_tab_data[tab_number]["priority"]:
                             all_tab_data[tab_number].update({
-                                "tb": row[tb_col] if tb_col in df.columns and pd.notna(row[tb_col]) else all_tab_data[tab_number]["tb"],
-                                "gosb": row[gosb_col] if gosb_col in df.columns and pd.notna(row[gosb_col]) else all_tab_data[tab_number]["gosb"],
-                                "fio": row[fio_col] if fio_col in df.columns and pd.notna(row[fio_col]) else all_tab_data[tab_number]["fio"],
+                                "tb": getattr(row, tb_col, "") if tb_col in df.columns else all_tab_data[tab_number]["tb"],
+                                "gosb": getattr(row, gosb_col, "") if gosb_col in df.columns else all_tab_data[tab_number]["gosb"],
+                                "fio": getattr(row, fio_col, "") if fio_col in df.columns else all_tab_data[tab_number]["fio"],
                                 "group": group,
                                 "month": month,
                                 "priority": current_priority
@@ -1480,14 +1499,21 @@ class FileProcessor:
             self.logger.warning("Уникальные табельные номера не собраны", "FileProcessor", "prepare_summary_data")
             self.collect_unique_tab_numbers()
         
+        # ОПТИМИЗАЦИЯ: Кэш для номеров месяцев
+        month_cache = {}
+        
         # Извлекаем номер месяца из имени файла для сортировки
         def extract_month_number(file_name: str) -> int:
             """Извлекает номер месяца из имени файла."""
+            if file_name in month_cache:
+                return month_cache[file_name]
             match = re.search(r'M-(\d{1,2})_', file_name)
             if match:
                 month = int(match.group(1))
                 if 1 <= month <= 12:
+                    month_cache[file_name] = month
                     return month
+            month_cache[file_name] = 0
             return 0
         
         # Создаем список всех файлов в порядке обработки
@@ -1510,6 +1536,40 @@ class FileProcessor:
         
         self.logger.info(f"Лист 'Данные': Всего колонок для обработки: {len(all_files)} (базовые: Табельный, ТБ, ГОСБ, ФИО + данные по группам и месяцам)", "FileProcessor", "prepare_summary_data")
         
+        # ОПТИМИЗАЦИЯ: Предварительно создаем индексы для всех файлов
+        # Кэшируем конфигурации групп
+        self.logger.info("Лист 'Данные': Создание индексов по табельным номерам для всех файлов", "FileProcessor", "prepare_summary_data")
+        file_indexes = {}  # {full_name: {tab_number: sum}}
+        group_configs_cache = {}  # Кэш конфигураций
+        
+        for group, file_name, full_name in all_files:
+            if group in self.processed_files and file_name in self.processed_files[group]:
+                df = self.processed_files[group][file_name]
+                
+                # Кэшируем конфигурацию группы
+                if group not in group_configs_cache:
+                    group_configs_cache[group] = config_manager.get_group_config(group)
+                
+                defaults = group_configs_cache[group].defaults
+                tab_col = defaults.tab_number_column
+                indicator_col = defaults.indicator_column
+                
+                if tab_col not in df.columns or indicator_col not in df.columns:
+                    file_indexes[full_name] = {}
+                    continue
+                
+                # ОПТИМИЗАЦИЯ: Нормализуем табельные номера один раз
+                df_normalized = df.copy()
+                df_normalized[tab_col] = df_normalized[tab_col].astype(str).str.strip()
+                df_normalized = df_normalized[df_normalized[tab_col] != 'nan']
+                df_normalized = df_normalized[df_normalized[tab_col] != '']
+                
+                # ОПТИМИЗАЦИЯ: Группируем по табельным номерам и суммируем показатели один раз для всего файла
+                grouped = df_normalized.groupby(tab_col)[indicator_col].sum()
+                file_indexes[full_name] = grouped.to_dict()
+        
+        self.logger.info(f"Лист 'Данные': Индексы созданы для {len(file_indexes)} файлов", "FileProcessor", "prepare_summary_data")
+        
         # Создаем структуру данных
         result_data = []
         total_tab_numbers = len(self.unique_tab_numbers)
@@ -1531,24 +1591,12 @@ class FileProcessor:
                 "ФИО": tab_info["fio"]
             }
             
-            # Для каждого файла собираем сумму показателя
+            # ОПТИМИЗАЦИЯ: Используем предварительно созданные индексы вместо фильтрации
             for group, file_name, full_name in all_files:
-                if group in self.processed_files and file_name in self.processed_files[group]:
-                    df = self.processed_files[group][file_name]
-                    group_config = config_manager.get_group_config(group)
-                    defaults = group_config.defaults
-                    tab_col = defaults.tab_number_column
-                    indicator_col = defaults.indicator_column
-                    
-                    # Фильтруем данные по табельному номеру
-                    tab_data = df[df[tab_col].astype(str).str.strip() == str(tab_number)]
-                    
-                    if not tab_data.empty and indicator_col in tab_data.columns:
-                        # Суммируем показатель
-                        total = tab_data[indicator_col].sum()
-                        row[full_name] = total
-                    else:
-                        row[full_name] = 0
+                if full_name in file_indexes:
+                    row[full_name] = file_indexes[full_name].get(tab_number, 0)
+                else:
+                    row[full_name] = 0
             
             result_data.append(row)
         
@@ -1592,14 +1640,21 @@ class FileProcessor:
         """
         self.logger.info("=== Начало подготовки расчетных данных для листа 'Расчеты' ===", "FileProcessor", "prepare_calculated_data")
         
+        # ОПТИМИЗАЦИЯ: Кэш для номеров месяцев
+        month_cache = {}
+        
         # Извлекаем номер месяца из имени файла
         def extract_month_number(file_name: str) -> int:
             """Извлекает номер месяца из имени файла."""
+            if file_name in month_cache:
+                return month_cache[file_name]
             match = re.search(r'M-(\d{1,2})_', file_name)
             if match:
                 month = int(match.group(1))
                 if 1 <= month <= 12:
+                    month_cache[file_name] = month
                     return month
+            month_cache[file_name] = 0
             return 0
         
         # Функция для генерации понятного имени колонки на основе типа расчета
@@ -2176,12 +2231,11 @@ class FileProcessor:
         """
         self.logger.info("=== Начало расчета итоговых рангов R_FIN ===", "FileProcessor", "_calculate_final_ranks")
         
-        # Получаем веса из конфигурации (берем из первой группы, веса должны быть одинаковые для всех групп)
-        first_group = list(config_manager.groups.keys())[0] if config_manager.groups else "OD"
-        defaults = config_manager.get_group_config(first_group).defaults
-        weight_od = defaults.weight_od
-        weight_ra = defaults.weight_ra
-        weight_ps = defaults.weight_ps
+        # Получаем веса из конфигурации каждого раздела
+        # В каждом разделе задается только свой вес
+        weight_od = config_manager.get_group_config("OD").defaults.weight if "OD" in config_manager.groups else 0.33
+        weight_ra = config_manager.get_group_config("RA").defaults.weight if "RA" in config_manager.groups else 0.33
+        weight_ps = config_manager.get_group_config("PS").defaults.weight if "PS" in config_manager.groups else 0.34
         
         self.logger.info(f"Лист 'Расчеты': Веса для итогового ранга - OD: {weight_od}, RA: {weight_ra}, PS: {weight_ps}", "FileProcessor", "_calculate_final_ranks")
         
