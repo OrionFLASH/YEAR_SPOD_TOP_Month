@@ -46,7 +46,7 @@ OUTPUT_DIR = "OUT"  # Каталог для выходных файлов
 LOG_DIR = "log"  # Каталог для логов
 
 # Уровень логирования (INFO или DEBUG)
-LOG_LEVEL = "INFO"  # Измените на "DEBUG" для детального логирования
+LOG_LEVEL = "DEBUG"  # Уровень логирования: DEBUG (в файлы) - детальное, INFO (в консоль) - верхнеуровневое
 
 # Тема логов (используется в имени файла)
 LOG_THEME = "processor"
@@ -1520,7 +1520,7 @@ class FileProcessor:
         # Порядок: для каждой группы (OD, RA, PS) файлы сортируются по месяцам (M-1, M-2, ..., M-12)
         all_files: List[Tuple[str, str, str]] = []  # (group, file_name, full_name)
         
-        # Логируем информацию о группах и месяцах
+        # Логируем информацию о группах и месяцах (DEBUG - детальная информация)
         for group in self.groups:
             if group in self.processed_files:
                 # Сортируем файлы по номеру месяца (1-12)
@@ -1529,16 +1529,16 @@ class FileProcessor:
                     key=lambda x: extract_month_number(x)
                 )
                 months_list = [extract_month_number(fn) for fn in files_sorted]
-                self.logger.info(f"Лист 'Данные': Группа {group}, обрабатываем месяцы: {months_list} (M-{min(months_list)} ... M-{max(months_list)})", "FileProcessor", "prepare_summary_data")
+                self.logger.debug(f"Лист 'Данные': Группа {group}, обрабатываем месяцы: {months_list} (M-{min(months_list)} ... M-{max(months_list)})", "FileProcessor", "prepare_summary_data")
                 for file_name in files_sorted:
                     full_name = f"{group}_{file_name}"
                     all_files.append((group, file_name, full_name))
         
-        self.logger.info(f"Лист 'Данные': Всего колонок для обработки: {len(all_files)} (базовые: Табельный, ТБ, ГОСБ, ФИО + данные по группам и месяцам)", "FileProcessor", "prepare_summary_data")
+        self.logger.debug(f"Лист 'Данные': Всего колонок для обработки: {len(all_files)} (базовые: Табельный, ТБ, ГОСБ, ФИО + данные по группам и месяцам)", "FileProcessor", "prepare_summary_data")
         
         # ОПТИМИЗАЦИЯ: Предварительно создаем индексы для всех файлов
         # Кэшируем конфигурации групп
-        self.logger.info("Лист 'Данные': Создание индексов по табельным номерам для всех файлов", "FileProcessor", "prepare_summary_data")
+        self.logger.debug("Лист 'Данные': Создание индексов по табельным номерам для всех файлов", "FileProcessor", "prepare_summary_data")
         file_indexes = {}  # {full_name: {tab_number: sum}}
         group_configs_cache = {}  # Кэш конфигураций
         
@@ -1568,19 +1568,19 @@ class FileProcessor:
                 grouped = df_normalized.groupby(tab_col)[indicator_col].sum()
                 file_indexes[full_name] = grouped.to_dict()
         
-        self.logger.info(f"Лист 'Данные': Индексы созданы для {len(file_indexes)} файлов", "FileProcessor", "prepare_summary_data")
+        self.logger.debug(f"Лист 'Данные': Индексы созданы для {len(file_indexes)} файлов", "FileProcessor", "prepare_summary_data")
         
         # Создаем структуру данных
         result_data = []
         total_tab_numbers = len(self.unique_tab_numbers)
-        self.logger.info(f"Лист 'Данные': Начало обработки {total_tab_numbers} уникальных табельных номеров", "FileProcessor", "prepare_summary_data")
+        self.logger.info(f"Лист 'Данные': Обработка {total_tab_numbers} уникальных табельных номеров", "FileProcessor", "prepare_summary_data")
         
         processed_count = 0
         for tab_number, tab_info in self.unique_tab_numbers.items():
             processed_count += 1
-            # Логируем прогресс каждые 100 записей или в начале/конце
+            # Логируем прогресс каждые 100 записей или в начале/конце (DEBUG - детальная информация)
             if processed_count == 1 or processed_count % 100 == 0 or processed_count == total_tab_numbers:
-                self.logger.info(f"Лист 'Данные': Обработано {processed_count} из {total_tab_numbers} табельных номеров ({processed_count * 100 // total_tab_numbers if total_tab_numbers > 0 else 0}%)", "FileProcessor", "prepare_summary_data")
+                self.logger.debug(f"Лист 'Данные': Обработано {processed_count} из {total_tab_numbers} табельных номеров ({processed_count * 100 // total_tab_numbers if total_tab_numbers > 0 else 0}%)", "FileProcessor", "prepare_summary_data")
             # Форматируем табельный номер: 8 знаков с лидирующими нулями
             tab_number_formatted = str(tab_number).zfill(8) if tab_number else "00000000"
             
@@ -1600,12 +1600,12 @@ class FileProcessor:
             
             result_data.append(row)
         
-        self.logger.info(f"Лист 'Данные': Завершена обработка всех табельных номеров, формирование DataFrame из {len(result_data)} строк", "FileProcessor", "prepare_summary_data")
+        self.logger.debug(f"Лист 'Данные': Завершена обработка всех табельных номеров, формирование DataFrame из {len(result_data)} строк", "FileProcessor", "prepare_summary_data")
         result_df = pd.DataFrame(result_data)
-        self.logger.info(f"Лист 'Данные': DataFrame создан, размер: {len(result_df)} строк x {len(result_df.columns)} колонок", "FileProcessor", "prepare_summary_data")
+        self.logger.debug(f"Лист 'Данные': DataFrame создан, размер: {len(result_df)} строк x {len(result_df.columns)} колонок", "FileProcessor", "prepare_summary_data")
         
         # Упорядочиваем колонки: сначала базовые, потом по группам и месяцам
-        self.logger.info("Лист 'Данные': Упорядочивание колонок", "FileProcessor", "prepare_summary_data")
+        self.logger.debug("Лист 'Данные': Упорядочивание колонок", "FileProcessor", "prepare_summary_data")
         base_columns = ["Табельный", "ТБ", "ГОСБ", "ФИО"]
         data_columns = [full_name for _, _, full_name in all_files]
         ordered_columns = base_columns + data_columns
@@ -1617,7 +1617,7 @@ class FileProcessor:
         final_columns = existing_columns + other_columns
         
         result_df = result_df[final_columns]
-        self.logger.info(f"Лист 'Данные': Колонки упорядочены, итоговое количество: {len(result_df.columns)}", "FileProcessor", "prepare_summary_data")
+        self.logger.debug(f"Лист 'Данные': Колонки упорядочены, итоговое количество: {len(result_df.columns)}", "FileProcessor", "prepare_summary_data")
         self.logger.info(f"Лист 'Данные': Подготовлено {len(result_df)} строк сводных данных, колонок: {len(result_df.columns)}", "FileProcessor", "prepare_summary_data")
         self.logger.info("=== Завершена подготовка сводных данных для листа 'Данные' ===", "FileProcessor", "prepare_summary_data")
         
@@ -1736,7 +1736,7 @@ class FileProcessor:
             if not group_files:
                 continue
             
-            self.logger.info(f"Лист 'Расчеты': Обработка группы {group}, файлов: {len(group_files)}", "FileProcessor", "prepare_calculated_data")
+            self.logger.debug(f"Лист 'Расчеты': Обработка группы {group}, файлов: {len(group_files)}", "FileProcessor", "prepare_calculated_data")
             group_config = config_manager.get_group_config(group)
             
             for idx, (g, file_name, full_name, month) in enumerate(group_files):
@@ -1781,7 +1781,7 @@ class FileProcessor:
                     else:
                         calc_desc += f", M-{month} - 2*M-{prev_month} + M-{prev2_month}"
                 
-                self.logger.info(f"Лист 'Расчеты': Группа {group}, месяц M-{month}, тип расчета: {calc_desc}, колонка: {new_name}", "FileProcessor", "prepare_calculated_data")
+                self.logger.debug(f"Лист 'Расчеты': Группа {group}, месяц M-{month}, тип расчета: {calc_desc}, колонка: {new_name}", "FileProcessor", "prepare_calculated_data")
                 
                 if calc_type == 1:
                     # Вариант 1: Как есть - просто копируем значение
@@ -1835,7 +1835,7 @@ class FileProcessor:
         # Переименовываем колонки на понятные имена (только те, которые существуют в DataFrame)
         existing_rename_dict = {k: v for k, v in rename_dict.items() if k in calculated_df.columns}
         calculated_df = calculated_df.rename(columns=existing_rename_dict)
-        self.logger.info(f"Лист 'Расчеты': Переименовано колонок: {len(existing_rename_dict)}", "FileProcessor", "prepare_calculated_data")
+        self.logger.debug(f"Лист 'Расчеты': Переименовано колонок: {len(existing_rename_dict)}", "FileProcessor", "prepare_calculated_data")
         
         # Рассчитываем ранги для каждой колонки с данными
         calculated_df = self._calculate_ranks(calculated_df, all_files_sorted, config_manager)
@@ -1872,7 +1872,7 @@ class FileProcessor:
         rank_count = 0
         for col_name in data_columns:
             rank_count += 1
-            self.logger.info(f"Лист 'Расчеты': Расчет ранга {rank_count} из {len(data_columns)} для колонки '{col_name}'", "FileProcessor", "_calculate_ranks")
+            self.logger.debug(f"Лист 'Расчеты': Расчет ранга {rank_count} из {len(data_columns)} для колонки '{col_name}'", "FileProcessor", "_calculate_ranks")
             # Определяем группу и месяц из имени колонки
             # Формат: "OD (M-1) [факт]" или "OD (M-2) [M-2→M-1]"
             match = re.search(r'^([A-Z]+)\s+\(M-(\d{1,2})\)', col_name)
@@ -1910,7 +1910,7 @@ class FileProcessor:
             else:
                 condition_str = "all"
             
-            self.logger.info(f"Лист 'Расчеты': Расчет ранга для колонки '{col_name}' - уровень: {rank_level}, условие: {condition_str}, порядок: {rank_order}, метод одинаковых: {rank_tie_method}", "FileProcessor", "_calculate_ranks")
+            self.logger.debug(f"Лист 'Расчеты': Расчет ранга для колонки '{col_name}' - уровень: {rank_level}, условие: {condition_str}, порядок: {rank_order}, метод одинаковых: {rank_tie_method}", "FileProcessor", "_calculate_ranks")
             
             # Создаем копию данных для расчета ранга
             rank_df = calculated_df[[col_name] + base_columns].copy()
@@ -1945,23 +1945,23 @@ class FileProcessor:
             # Группируем по уровню
             # ВАЖНО: Используем groupby().groups для получения словаря групп, затем преобразуем в список индексов
             # ВАЖНО: Используем реальные имена колонок "ТБ" и "ГОСБ" из base_columns
-            self.logger.info(f"Лист 'Расчеты': Расчет ранга для колонки '{col_name}' - уровень: {rank_level}, проверка колонок: ТБ={'ТБ' in rank_df.columns}, ГОСБ={'ГОСБ' in rank_df.columns}", "FileProcessor", "_calculate_ranks")
+            self.logger.debug(f"Лист 'Расчеты': Расчет ранга для колонки '{col_name}' - уровень: {rank_level}, проверка колонок: ТБ={'ТБ' in rank_df.columns}, ГОСБ={'ГОСБ' in rank_df.columns}", "FileProcessor", "_calculate_ranks")
             
             if rank_level == "BANK":
                 # По всему списку - одна группа
                 groups_dict = {"BANK": rank_df.index}
-                self.logger.info(f"Лист 'Расчеты': Уровень BANK - одна группа, всего строк: {len(rank_df)}", "FileProcessor", "_calculate_ranks")
+                self.logger.debug(f"Лист 'Расчеты': Уровень BANK - одна группа, всего строк: {len(rank_df)}", "FileProcessor", "_calculate_ranks")
             elif rank_level == "TB":
                 # По ТБ - группируем внутри каждого ТБ отдельно
                 if tb_col in rank_df.columns:
                     groups_dict = rank_df.groupby(tb_col).groups
                     unique_tb_count = len(groups_dict)
-                    self.logger.info(f"Лист 'Расчеты': Уровень TB - найдено {unique_tb_count} уникальных ТБ для группировки", "FileProcessor", "_calculate_ranks")
+                    self.logger.debug(f"Лист 'Расчеты': Уровень TB - найдено {unique_tb_count} уникальных ТБ для группировки", "FileProcessor", "_calculate_ranks")
                     # Логируем первые несколько ТБ для проверки
                     tb_list = list(groups_dict.keys())[:5]
                     for tb_val in tb_list:
                         tb_rows = len(groups_dict[tb_val])
-                        self.logger.info(f"Лист 'Расчеты': ТБ '{tb_val}': {tb_rows} строк", "FileProcessor", "_calculate_ranks")
+                        self.logger.debug(f"Лист 'Расчеты': ТБ '{tb_val}': {tb_rows} строк", "FileProcessor", "_calculate_ranks")
                 else:
                     self.logger.warning(f"Лист 'Расчеты': Уровень TB - колонка '{tb_col}' не найдена, используем одну группу", "FileProcessor", "_calculate_ranks")
                     groups_dict = {"ALL": rank_df.index}
@@ -1971,12 +1971,12 @@ class FileProcessor:
                     # Группируем по комбинации ТБ и ГОСБ
                     groups_dict = rank_df.groupby([tb_col, gosb_col]).groups
                     unique_gosb_count = len(groups_dict)
-                    self.logger.info(f"Лист 'Расчеты': Уровень GOSB - найдено {unique_gosb_count} уникальных комбинаций ТБ+ГОСБ для группировки", "FileProcessor", "_calculate_ranks")
+                    self.logger.debug(f"Лист 'Расчеты': Уровень GOSB - найдено {unique_gosb_count} уникальных комбинаций ТБ+ГОСБ для группировки", "FileProcessor", "_calculate_ranks")
                     # Логируем первые несколько комбинаций для проверки
                     gosb_list = list(groups_dict.keys())[:5]
                     for (tb_val, gosb_val) in gosb_list:
                         gosb_rows = len(groups_dict[(tb_val, gosb_val)])
-                        self.logger.info(f"Лист 'Расчеты': ТБ '{tb_val}', ГОСБ '{gosb_val}': {gosb_rows} строк", "FileProcessor", "_calculate_ranks")
+                        self.logger.debug(f"Лист 'Расчеты': ТБ '{tb_val}', ГОСБ '{gosb_val}': {gosb_rows} строк", "FileProcessor", "_calculate_ranks")
                 elif tb_col in rank_df.columns:
                     self.logger.warning(f"Лист 'Расчеты': Уровень GOSB - колонка '{gosb_col}' не найдена, группируем только по ТБ", "FileProcessor", "_calculate_ranks")
                     groups_dict = rank_df.groupby(tb_col).groups
@@ -2020,12 +2020,12 @@ class FileProcessor:
                     # Все строки группы валидны
                     valid_indices = group_data.index
                 
-                # Логируем информацию о группе для отладки
+                # Логируем информацию о группе для отладки (DEBUG - детальная информация)
                 if rank_level == "TB" and tb_col in rank_df.columns:
                     # Получаем первое значение из группы для логирования
                     first_idx = list(group_indices)[0] if len(group_indices) > 0 else None
                     tb_value = rank_df.loc[first_idx, tb_col] if first_idx is not None and first_idx in rank_df.index else "N/A"
-                    self.logger.info(f"Лист 'Расчеты': Группа {group_num} (ТБ='{tb_value}'): всего {len(group_indices)} строк, валидных {len(valid_indices)}", "FileProcessor", "_calculate_ranks")
+                    self.logger.debug(f"Лист 'Расчеты': Группа {group_num} (ТБ='{tb_value}'): всего {len(group_indices)} строк, валидных {len(valid_indices)}", "FileProcessor", "_calculate_ranks")
                 elif rank_level == "GOSB" and tb_col in rank_df.columns and gosb_col in rank_df.columns:
                     # Получаем первое значение из группы для логирования
                     first_idx = list(group_indices)[0] if len(group_indices) > 0 else None
@@ -2035,22 +2035,22 @@ class FileProcessor:
                     else:
                         tb_value = "N/A"
                         gosb_value = "N/A"
-                    self.logger.info(f"Лист 'Расчеты': Группа {group_num} (ТБ='{tb_value}', ГОСБ='{gosb_value}'): всего {len(group_indices)} строк, валидных {len(valid_indices)}", "FileProcessor", "_calculate_ranks")
+                    self.logger.debug(f"Лист 'Расчеты': Группа {group_num} (ТБ='{tb_value}', ГОСБ='{gosb_value}'): всего {len(group_indices)} строк, валидных {len(valid_indices)}", "FileProcessor", "_calculate_ranks")
                 else:
-                    self.logger.info(f"Лист 'Расчеты': Группа {group_num}: всего {len(group_indices)} строк, валидных {len(valid_indices)}", "FileProcessor", "_calculate_ranks")
+                    self.logger.debug(f"Лист 'Расчеты': Группа {group_num}: всего {len(group_indices)} строк, валидных {len(valid_indices)}", "FileProcessor", "_calculate_ranks")
                 
                 if len(valid_indices) == 0:
-                    self.logger.info(f"Лист 'Расчеты': Группа {group_num}: нет строк, соответствующих условию, пропускаем", "FileProcessor", "_calculate_ranks")
+                    self.logger.debug(f"Лист 'Расчеты': Группа {group_num}: нет строк, соответствующих условию, пропускаем", "FileProcessor", "_calculate_ranks")
                     continue
                 
                 # Получаем значения для ранжирования (только валидные индексы)
                 values_to_rank = group_data.loc[valid_indices].copy()
                 
-                # Логируем первые несколько значений для отладки
+                # Логируем первые несколько значений для отладки (DEBUG - детальная информация)
                 if len(values_to_rank) > 0:
                     first_values = values_to_rank.head(5).to_dict()
                     first_values_str = ", ".join([f"{idx}:{val:.2f}" if pd.notna(val) else f"{idx}:NaN" for idx, val in list(first_values.items())[:5]])
-                    self.logger.info(f"Лист 'Расчеты': Группа {group_num}: первые значения для ранжирования: {first_values_str}", "FileProcessor", "_calculate_ranks")
+                    self.logger.debug(f"Лист 'Расчеты': Группа {group_num}: первые значения для ранжирования: {first_values_str}", "FileProcessor", "_calculate_ranks")
                 
                 # Сортируем в зависимости от порядка
                 # Ранг 1 - лучший (меньший номер ранга = лучше)
@@ -2124,7 +2124,7 @@ class FileProcessor:
                     # Показываем первые 5 рангов для отладки
                     first_ranks = ranks.head(5).to_dict() if len(ranks) > 0 else {}
                     first_ranks_str = ", ".join([f"{idx}:{rank}" for idx, rank in list(first_ranks.items())[:5]])
-                    self.logger.info(f"Лист 'Расчеты': Группа {group_num}: присвоено рангов {len(ranks)}, диапазон: {min_rank}-{max_rank}, уникальных рангов: {unique_ranks_count}, первые ранги: {first_ranks_str}", "FileProcessor", "_calculate_ranks")
+                    self.logger.debug(f"Лист 'Расчеты': Группа {group_num}: присвоено рангов {len(ranks)}, диапазон: {min_rank}-{max_rank}, уникальных рангов: {unique_ranks_count}, первые ранги: {first_ranks_str}", "FileProcessor", "_calculate_ranks")
                     if min_rank != 1:
                         self.logger.warning(f"Лист 'Расчеты': Группа {group_num}: ВНИМАНИЕ! Минимальный ранг = {min_rank}, должен быть 1!", "FileProcessor", "_calculate_ranks")
                     # Проверяем, что ранг 1 действительно присвоен
@@ -2144,7 +2144,7 @@ class FileProcessor:
                         if tb_min_rank != 1:
                             self.logger.warning(f"Лист 'Расчеты': ТБ '{tb_val}': минимальный ранг = {tb_min_rank}, должен быть 1!", "FileProcessor", "_calculate_ranks")
                         else:
-                            self.logger.info(f"Лист 'Расчеты': ТБ '{tb_val}': проверка пройдена, минимальный ранг = 1, всего рангов: {len(tb_non_zero_ranks)}", "FileProcessor", "_calculate_ranks")
+                            self.logger.debug(f"Лист 'Расчеты': ТБ '{tb_val}': проверка пройдена, минимальный ранг = 1, всего рангов: {len(tb_non_zero_ranks)}", "FileProcessor", "_calculate_ranks")
             elif rank_level == "GOSB" and tb_col in rank_df.columns and gosb_col in rank_df.columns:
                 # Проверяем, что для каждой комбинации ТБ+ГОСБ минимальный ранг равен 1
                 for (tb_val, gosb_val) in rank_df[[tb_col, gosb_col]].drop_duplicates().values:
@@ -2156,7 +2156,7 @@ class FileProcessor:
                         if gosb_min_rank != 1:
                             self.logger.warning(f"Лист 'Расчеты': ТБ '{tb_val}', ГОСБ '{gosb_val}': минимальный ранг = {gosb_min_rank}, должен быть 1!", "FileProcessor", "_calculate_ranks")
                         else:
-                            self.logger.info(f"Лист 'Расчеты': ТБ '{tb_val}', ГОСБ '{gosb_val}': проверка пройдена, минимальный ранг = 1, всего рангов: {len(gosb_non_zero_ranks)}", "FileProcessor", "_calculate_ranks")
+                            self.logger.debug(f"Лист 'Расчеты': ТБ '{tb_val}', ГОСБ '{gosb_val}': проверка пройдена, минимальный ранг = 1, всего рангов: {len(gosb_non_zero_ranks)}", "FileProcessor", "_calculate_ranks")
             
             # Формируем имя колонки ранга
             # Извлекаем только группу и месяц из имени колонки (без описания расчета)
@@ -2175,13 +2175,13 @@ class FileProcessor:
             
             # Логируем результат расчета ранга
             non_zero_ranks = (rank_series != 0).sum()
-            self.logger.info(f"Лист 'Расчеты': Ранг рассчитан для колонки '{col_name}' -> '{rank_col_name}', ненулевых рангов: {non_zero_ranks} из {len(rank_series)}", "FileProcessor", "_calculate_ranks")
+            self.logger.debug(f"Лист 'Расчеты': Ранг рассчитан для колонки '{col_name}' -> '{rank_col_name}', ненулевых рангов: {non_zero_ranks} из {len(rank_series)}", "FileProcessor", "_calculate_ranks")
             
             # Сохраняем соответствие между колонкой данных и её рангом для переупорядочивания в конце
             pass  # Переупорядочивание будет сделано в конце метода
         
         # Переупорядочиваем все колонки: каждая колонка ранга сразу после своей исходной колонки
-        self.logger.info("Лист 'Расчеты': Переупорядочивание колонок (ранг после исходной колонки)", "FileProcessor", "_calculate_ranks")
+        self.logger.debug("Лист 'Расчеты': Переупорядочивание колонок (ранг после исходной колонки)", "FileProcessor", "_calculate_ranks")
         cols = list(calculated_df.columns)
         base_columns = ["Табельный", "ТБ", "ГОСБ", "ФИО"]
         new_cols = base_columns.copy()
@@ -2189,7 +2189,7 @@ class FileProcessor:
         # Для каждой колонки с данными добавляем её и её ранг (если есть)
         data_columns = [col for col in cols if col not in base_columns and not col.startswith("R:")]
         rank_columns = {col: col for col in cols if col.startswith("R:")}
-        self.logger.info(f"Лист 'Расчеты': Переупорядочивание: {len(data_columns)} колонок данных, {len(rank_columns)} колонок ранга", "FileProcessor", "_calculate_ranks")
+        self.logger.debug(f"Лист 'Расчеты': Переупорядочивание: {len(data_columns)} колонок данных, {len(rank_columns)} колонок ранга", "FileProcessor", "_calculate_ranks")
         
         for data_col in data_columns:
             new_cols.append(data_col)
@@ -2211,7 +2211,7 @@ class FileProcessor:
         
         calculated_df = calculated_df[new_cols]
         
-        self.logger.info(f"Лист 'Расчеты': Завершен расчет рангов, всего колонок с рангами: {len([c for c in calculated_df.columns if c.startswith('R:')])}", "FileProcessor", "_calculate_ranks")
+        self.logger.debug(f"Лист 'Расчеты': Завершен расчет рангов, всего колонок с рангами: {len([c for c in calculated_df.columns if c.startswith('R:')])}", "FileProcessor", "_calculate_ranks")
         self.logger.info("=== Завершен расчет рангов для листа 'Расчеты' ===", "FileProcessor", "_calculate_ranks")
         
         return calculated_df
@@ -2237,7 +2237,7 @@ class FileProcessor:
         weight_ra = config_manager.get_group_config("RA").defaults.weight if "RA" in config_manager.groups else 0.33
         weight_ps = config_manager.get_group_config("PS").defaults.weight if "PS" in config_manager.groups else 0.34
         
-        self.logger.info(f"Лист 'Расчеты': Веса для итогового ранга - OD: {weight_od}, RA: {weight_ra}, PS: {weight_ps}", "FileProcessor", "_calculate_final_ranks")
+        self.logger.debug(f"Лист 'Расчеты': Веса для итогового ранга - OD: {weight_od}, RA: {weight_ra}, PS: {weight_ps}", "FileProcessor", "_calculate_final_ranks")
         
         # Базовые колонки
         base_columns = ["Табельный", "ТБ", "ГОСБ", "ФИО"]
@@ -2265,7 +2265,7 @@ class FileProcessor:
         
         # Сортируем месяцы
         sorted_months = sorted(month_ranks.keys())
-        self.logger.info(f"Лист 'Расчеты': Найдено {len(sorted_months)} месяцев для расчета итоговых рангов: {sorted_months}", "FileProcessor", "_calculate_final_ranks")
+        self.logger.debug(f"Лист 'Расчеты': Найдено {len(sorted_months)} месяцев для расчета итоговых рангов: {sorted_months}", "FileProcessor", "_calculate_final_ranks")
         
         # Рассчитываем R_FIN для каждого месяца
         r_fin_columns = []
@@ -2280,31 +2280,31 @@ class FileProcessor:
             if "OD" in month_ranks[month] and month_ranks[month]["OD"] in calculated_df.columns:
                 od_rank = calculated_df[month_ranks[month]["OD"]].fillna(0)
                 r_fin += od_rank * weight_od
-                self.logger.info(f"Лист 'Расчеты': Месяц M-{month}: добавлен ранг OD (колонка '{month_ranks[month]['OD']}') с весом {weight_od}", "FileProcessor", "_calculate_final_ranks")
+                self.logger.debug(f"Лист 'Расчеты': Месяц M-{month}: добавлен ранг OD (колонка '{month_ranks[month]['OD']}') с весом {weight_od}", "FileProcessor", "_calculate_final_ranks")
             
             if "RA" in month_ranks[month] and month_ranks[month]["RA"] in calculated_df.columns:
                 ra_rank = calculated_df[month_ranks[month]["RA"]].fillna(0)
                 r_fin += ra_rank * weight_ra
-                self.logger.info(f"Лист 'Расчеты': Месяц M-{month}: добавлен ранг RA (колонка '{month_ranks[month]['RA']}') с весом {weight_ra}", "FileProcessor", "_calculate_final_ranks")
+                self.logger.debug(f"Лист 'Расчеты': Месяц M-{month}: добавлен ранг RA (колонка '{month_ranks[month]['RA']}') с весом {weight_ra}", "FileProcessor", "_calculate_final_ranks")
             
             if "PS" in month_ranks[month] and month_ranks[month]["PS"] in calculated_df.columns:
                 ps_rank = calculated_df[month_ranks[month]["PS"]].fillna(0)
                 r_fin += ps_rank * weight_ps
-                self.logger.info(f"Лист 'Расчеты': Месяц M-{month}: добавлен ранг PS (колонка '{month_ranks[month]['PS']}') с весом {weight_ps}", "FileProcessor", "_calculate_final_ranks")
+                self.logger.debug(f"Лист 'Расчеты': Месяц M-{month}: добавлен ранг PS (колонка '{month_ranks[month]['PS']}') с весом {weight_ps}", "FileProcessor", "_calculate_final_ranks")
             
             # Добавляем колонку R_FIN
             calculated_df[r_fin_col_name] = r_fin
             
-            # Логируем статистику
+            # Логируем статистику (DEBUG - детальная информация)
             non_zero_count = (r_fin != 0).sum()
             if non_zero_count > 0:
                 min_r_fin = r_fin[r_fin != 0].min()
                 max_r_fin = r_fin[r_fin != 0].max()
-                self.logger.info(f"Лист 'Расчеты': R_FIN (M-{month}): ненулевых значений {non_zero_count}, диапазон: {min_r_fin:.2f} - {max_r_fin:.2f}", "FileProcessor", "_calculate_final_ranks")
+                self.logger.debug(f"Лист 'Расчеты': R_FIN (M-{month}): ненулевых значений {non_zero_count}, диапазон: {min_r_fin:.2f} - {max_r_fin:.2f}", "FileProcessor", "_calculate_final_ranks")
         
         # Находим лучший месяц (месяц с наименьшим R_FIN)
         # Если R_FIN = 0, не учитываем этот месяц
-        self.logger.info("Лист 'Расчеты': Поиск лучшего месяца для каждого КМ", "FileProcessor", "_calculate_final_ranks")
+        self.logger.debug("Лист 'Расчеты': Поиск лучшего месяца для каждого КМ", "FileProcessor", "_calculate_final_ranks")
         
         best_month_series = pd.Series("", index=calculated_df.index, dtype=str)
         
