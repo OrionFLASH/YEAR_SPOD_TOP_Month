@@ -1392,11 +1392,16 @@ class FileProcessor:
         """
         Собирает уникальные табельные номера из всех файлов.
         
-        Приоритет данных:
-        1. Группы: OD > RA > PS
-        2. Месяцы: 12 > 11 > ... > 1
+        Алгоритм:
+        1. В каждом файле табельные номера должны быть уникальны (если есть дубликаты, берется первая строка)
+        2. Поиск выполняется в порядке приоритета:
+           - Группы: OD -> RA -> PS
+           - Месяцы: декабрь (M-12) -> ноябрь (M-11) -> ... -> январь (M-1)
+        3. Для каждого табельного номера берется ПЕРВЫЙ найденный ТБ и ГОСБ
+        4. Если табельный номер уже найден в файле с более высоким приоритетом, 
+           он НЕ обновляется - остается ранее найденный ТБ и ГОСБ
         
-        Для каждого табельного номера сохраняется ТБ, ГОСБ, ФИО из файла с наивысшим приоритетом.
+        Результат: каждый табельный номер встречается в итоговом списке только один раз.
         """
         self.logger.info("Начало сбора уникальных табельных номеров", "FileProcessor", "collect_unique_tab_numbers")
         
@@ -1497,17 +1502,29 @@ class FileProcessor:
                 if len(df_normalized) == 0:
                     continue
                 
+                # ВАЖНО: В каждом файле табельные номера должны быть уникальны
+                # Группируем по табельным номерам и берем первую строку для каждого табельного номера
+                # Это гарантирует, что каждый табельный номер в файле будет обработан только один раз
+                df_unique = df_normalized.drop_duplicates(subset=[tab_col], keep='first')
+                
+                if len(df_unique) < len(df_normalized):
+                    duplicates_count = len(df_normalized) - len(df_unique)
+                    self.logger.debug(f"В файле {file_name} найдено {duplicates_count} дубликатов табельных номеров, оставлено уникальных: {len(df_unique)}", "FileProcessor", "collect_unique_tab_numbers")
+                
                 # ОПТИМИЗАЦИЯ: Используем itertuples() вместо iterrows() - в 10-100 раз быстрее
                 current_priority = group_priority[group] * 100 + month
                 
-                for row in df_normalized.itertuples():
+                for row in df_unique.itertuples():
                     tab_number = getattr(row, tab_col)
                     
                     if not tab_number or tab_number == 'nan':
                         continue
                     
-                    # Если табельный номер еще не встречался, или текущий файл имеет более высокий приоритет
+                    # ВАЖНО: Если табельный номер уже найден ранее (в файле с более высоким приоритетом),
+                    # НЕ обновляем его - оставляем ранее найденный ТБ и ГОСБ
+                    # Алгоритм: ищем от OD к PS, от декабря к январю, берем ПЕРВЫЙ найденный
                     if tab_number not in all_tab_data:
+                        # Табельный номер еще не встречался - добавляем его
                         all_tab_data[tab_number] = {
                             "tab_number": tab_number,
                             "tb": getattr(row, tb_col, "") if tb_col in df.columns else "",
@@ -1517,19 +1534,21 @@ class FileProcessor:
                             "month": month,
                             "priority": current_priority
                         }
-                    else:
-                        # Проверяем, нужно ли обновить данные
-                        if current_priority < all_tab_data[tab_number]["priority"]:
-                            all_tab_data[tab_number].update({
-                                "tb": getattr(row, tb_col, "") if tb_col in df.columns else all_tab_data[tab_number]["tb"],
-                                "gosb": getattr(row, gosb_col, "") if gosb_col in df.columns else all_tab_data[tab_number]["gosb"],
-                                "fio": getattr(row, fio_col, "") if fio_col in df.columns else all_tab_data[tab_number]["fio"],
-                                "group": group,
-                                "month": month,
-                                "priority": current_priority
-                            })
+                    # Если табельный номер уже найден, НЕ обновляем - оставляем ранее найденный
         
         self.unique_tab_numbers = all_tab_data
+        
+        # Логируем статистику по группам и месяцам
+        group_stats = {}
+        for tab_number, data in all_tab_data.items():
+            group = data["group"]
+            month = data["month"]
+            key = f"{group}_M-{month}"
+            if key not in group_stats:
+                group_stats[key] = 0
+            group_stats[key] += 1
+        
+        self.logger.debug(f"Распределение табельных номеров по группам и месяцам: {group_stats}", "FileProcessor", "collect_unique_tab_numbers")
         self.logger.info(f"Собрано {len(self.unique_tab_numbers)} уникальных табельных номеров", "FileProcessor", "collect_unique_tab_numbers")
     
     def prepare_summary_data(self) -> pd.DataFrame:
