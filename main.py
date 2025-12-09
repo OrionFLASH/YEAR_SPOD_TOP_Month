@@ -1505,16 +1505,68 @@ class FileProcessor:
                     continue
                 
                 # ВАЖНО: В каждом файле табельные номера должны быть уникальны
-                # Группируем по табельным номерам и берем первую строку для каждого табельного номера
-                # Это гарантирует, что каждый табельный номер в файле будет обработан только один раз
-                df_unique = df_normalized.drop_duplicates(subset=[tab_col], keep='first')
+                # Если у табельного номера несколько разных ТБ/ГОСБ, выбираем тот, у которого сумма показателя больше
+                # Это делается только если табельный номер еще не встречался ранее
+                current_priority = group_priority[group] * 100 + month
+                indicator_col = defaults.indicator_column
+                
+                # Выбираем уникальные строки для каждого табельного номера
+                if indicator_col in df_normalized.columns:
+                    # Группируем по табельному номеру и ТБ+ГОСБ, суммируем показатели
+                    group_cols = [tab_col]
+                    if tb_col in df_normalized.columns:
+                        group_cols.append(tb_col)
+                    if gosb_col in df_normalized.columns:
+                        group_cols.append(gosb_col)
+                    
+                    # Группируем и суммируем показатели по комбинации ТН+ТБ+ГОСБ
+                    grouped = df_normalized.groupby(group_cols, as_index=False)[indicator_col].sum()
+                    
+                    # Для каждого табельного номера выбираем вариант с максимальной суммой показателя
+                    selected_indices = []
+                    for tab_num in grouped[tab_col].unique():
+                        tab_data = grouped[grouped[tab_col] == tab_num]
+                        
+                        # Если несколько вариантов ТБ/ГОСБ для этого табельного номера
+                        if len(tab_data) > 1:
+                            # Выбираем строку с максимальной суммой показателя
+                            max_row = tab_data.loc[tab_data[indicator_col].idxmax()]
+                            # Находим соответствующую строку в исходном DataFrame
+                            mask = df_normalized[tab_col] == max_row[tab_col]
+                            if tb_col in df_normalized.columns:
+                                mask = mask & (df_normalized[tb_col] == max_row[tb_col])
+                            if gosb_col in df_normalized.columns:
+                                mask = mask & (df_normalized[gosb_col] == max_row[gosb_col])
+                            
+                            matching_indices = df_normalized[mask].index
+                            if len(matching_indices) > 0:
+                                selected_indices.append(matching_indices[0])
+                            self.logger.debug(f"В файле {file_name} для табельного {tab_num} найдено {len(tab_data)} вариантов ТБ/ГОСБ, выбран вариант с максимальной суммой показателя: {max_row[indicator_col]:.2f}", "FileProcessor", "collect_unique_tab_numbers")
+                        else:
+                            # Только один вариант - находим соответствующую строку в исходном DataFrame
+                            row_data = tab_data.iloc[0]
+                            mask = df_normalized[tab_col] == row_data[tab_col]
+                            if tb_col in df_normalized.columns:
+                                mask = mask & (df_normalized[tb_col] == row_data[tb_col])
+                            if gosb_col in df_normalized.columns:
+                                mask = mask & (df_normalized[gosb_col] == row_data[gosb_col])
+                            
+                            matching_indices = df_normalized[mask].index
+                            if len(matching_indices) > 0:
+                                selected_indices.append(matching_indices[0])
+                    
+                    # Создаем DataFrame из выбранных строк
+                    if selected_indices:
+                        df_unique = df_normalized.loc[selected_indices].copy()
+                    else:
+                        df_unique = df_normalized.drop_duplicates(subset=[tab_col], keep='first')
+                else:
+                    # Если нет колонки с показателем, используем старую логику
+                    df_unique = df_normalized.drop_duplicates(subset=[tab_col], keep='first')
                 
                 if len(df_unique) < len(df_normalized):
                     duplicates_count = len(df_normalized) - len(df_unique)
                     self.logger.debug(f"В файле {file_name} найдено {duplicates_count} дубликатов табельных номеров, оставлено уникальных: {len(df_unique)}", "FileProcessor", "collect_unique_tab_numbers")
-                
-                # ОПТИМИЗАЦИЯ: Используем itertuples() вместо iterrows() - в 10-100 раз быстрее
-                current_priority = group_priority[group] * 100 + month
                 
                 # ВАЖНО: Используем нормализованные значения из df_unique напрямую
                 for idx in df_unique.index:
