@@ -969,7 +969,7 @@ class Logger:
             Path: Путь к файлу лога
         """
         now = datetime.now()
-        filename = f"{self.level}_{self.theme}_{now.strftime('%Y%m%d_%H')}.log"
+        filename = f"{self.level}_{self.theme}_{now.strftime('%Y%m%d_%H%M')}.log"
         return self.log_dir / filename
     
     def info(self, message: str, class_name: Optional[str] = None, func_name: Optional[str] = None) -> None:
