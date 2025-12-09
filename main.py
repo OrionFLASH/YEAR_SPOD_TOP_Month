@@ -2393,9 +2393,9 @@ class FileProcessor:
                 min_r_fin = min(r_fin_values.values())
                 # Находим все месяцы с минимальным значением
                 best_months = [month for month, value in r_fin_values.items() if value == min_r_fin]
-                # Сортируем месяцы и формируем строку
+                # Сортируем месяцы и формируем строку (просто номера месяцев через запятую)
                 best_months_sorted = sorted(best_months)
-                best_month_series.loc[idx] = ", ".join([f"M-{m}" for m in best_months_sorted])
+                best_month_series.loc[idx] = ", ".join([str(m) for m in best_months_sorted])
             else:
                 best_month_series.loc[idx] = ""
         
