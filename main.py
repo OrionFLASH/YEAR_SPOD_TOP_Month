@@ -1059,6 +1059,11 @@ class FileProcessor:
         """
         self.logger.info("Начало загрузки файлов", "FileProcessor", "load_all_files")
         
+        # Для сводной статистики
+        total_rows = 0
+        all_client_ids = set()
+        all_tab_numbers = set()
+        
         for group in self.groups:
             group_path = self.input_dir / group
             if not group_path.exists():
@@ -1071,6 +1076,7 @@ class FileProcessor:
             # Получаем конфигурацию группы
             group_config = config_manager.get_group_config(group)
             items = group_config.items
+            defaults = group_config.defaults
             
             if not items:
                 self.logger.warning(f"Список файлов (items) пуст для группы {group}", "FileProcessor", "load_all_files")
@@ -1095,13 +1101,55 @@ class FileProcessor:
                     df = self._load_file(file_path, group)
                     if df is not None and not df.empty:
                         self.processed_files[group][file_path.name] = df
-                        self.logger.debug(f"Загружен файл {item.file_name} ({item.label}, {len(df)} строк)", "FileProcessor", "load_all_files")
+                        
+                        # Статистика по файлу (DEBUG)
+                        rows_count = len(df)
+                        total_rows += rows_count
+                        
+                        # Получаем имена колонок из конфигурации (после маппинга используются alias)
+                        tab_number_col = defaults.tab_number_column
+                        # ИНН может быть в колонке "client_id" (стандартное имя после маппинга)
+                        client_id_col = "client_id"
+                        
+                        # Подсчитываем уникальные значения
+                        unique_clients = 0
+                        unique_tabs = 0
+                        
+                        if client_id_col in df.columns:
+                            unique_clients = df[client_id_col].nunique()
+                            # Добавляем в общий набор (исключаем NaN и пустые значения)
+                            valid_client_ids = df[client_id_col].dropna().astype(str).str.strip()
+                            valid_client_ids = valid_client_ids[(valid_client_ids != 'nan') & (valid_client_ids != '')]
+                            all_client_ids.update(valid_client_ids.unique())
+                        
+                        if tab_number_col in df.columns:
+                            unique_tabs = df[tab_number_col].nunique()
+                            # Добавляем в общий набор (исключаем NaN и пустые значения)
+                            valid_tabs = df[tab_number_col].dropna().astype(str).str.strip()
+                            valid_tabs = valid_tabs[(valid_tabs != 'nan') & (valid_tabs != '')]
+                            all_tab_numbers.update(valid_tabs.unique())
+                        
+                        # Логируем статистику по файлу (DEBUG)
+                        stats_parts = [f"{rows_count} строк"]
+                        if unique_clients > 0:
+                            stats_parts.append(f"{unique_clients} уникальных клиентов (ИНН)")
+                        if unique_tabs > 0:
+                            stats_parts.append(f"{unique_tabs} уникальных табельных номеров")
+                        
+                        self.logger.debug(f"Загружен файл {item.file_name} ({item.label}): {', '.join(stats_parts)}", "FileProcessor", "load_all_files")
                     else:
                         self.logger.warning(f"Файл {item.file_name} ({item.label}) загружен, но пуст", "FileProcessor", "load_all_files")
                 except Exception as e:
                     self.logger.error(f"Ошибка при загрузке файла {item.file_name} ({item.label}): {str(e)}", "FileProcessor", "load_all_files")
         
-        self.logger.info(f"Загрузка завершена. Обработано групп: {len(self.processed_files)}", "FileProcessor", "load_all_files")
+        # Сводная статистика (INFO)
+        stats_parts = [f"{total_rows} строк"]
+        if len(all_client_ids) > 0:
+            stats_parts.append(f"{len(all_client_ids)} уникальных клиентов (ИНН)")
+        if len(all_tab_numbers) > 0:
+            stats_parts.append(f"{len(all_tab_numbers)} уникальных табельных номеров")
+        
+        self.logger.info(f"Загрузка завершена. Обработано групп: {len(self.processed_files)}. Итого: {', '.join(stats_parts)}", "FileProcessor", "load_all_files")
     
     def _load_file(self, file_path: Path, group_name: str) -> Optional[pd.DataFrame]:
         """
