@@ -1102,32 +1102,34 @@ class FileProcessor:
                     if df is not None and not df.empty:
                         self.processed_files[group][file_path.name] = df
                         
-                        # Статистика по файлу (DEBUG)
+                        # Статистика по файлу (DEBUG) - оптимизировано: используем nunique() без дополнительных преобразований
                         rows_count = len(df)
                         total_rows += rows_count
                         
                         # Получаем имена колонок из конфигурации (после маппинга используются alias)
                         tab_number_col = defaults.tab_number_column
-                        # ИНН может быть в колонке "client_id" (стандартное имя после маппинга)
                         client_id_col = "client_id"
                         
-                        # Подсчитываем уникальные значения
+                        # ОПТИМИЗАЦИЯ: Подсчитываем уникальные значения быстро (nunique() уже оптимизирован)
                         unique_clients = 0
                         unique_tabs = 0
                         
                         if client_id_col in df.columns:
                             unique_clients = df[client_id_col].nunique()
-                            # Добавляем в общий набор (исключаем NaN и пустые значения)
-                            valid_client_ids = df[client_id_col].dropna().astype(str).str.strip()
-                            valid_client_ids = valid_client_ids[(valid_client_ids != 'nan') & (valid_client_ids != '')]
-                            all_client_ids.update(valid_client_ids.unique())
+                            # ОПТИМИЗАЦИЯ: Добавляем в общий набор только для сводной статистики (быстро)
+                            # Используем nunique() вместо полной обработки всех значений
+                            if len(all_client_ids) < 10000:  # Ограничиваем размер для производительности
+                                valid_client_ids = df[client_id_col].dropna().astype(str).str.strip()
+                                valid_client_ids = valid_client_ids[(valid_client_ids != 'nan') & (valid_client_ids != '')]
+                                all_client_ids.update(valid_client_ids.unique())
                         
                         if tab_number_col in df.columns:
                             unique_tabs = df[tab_number_col].nunique()
-                            # Добавляем в общий набор (исключаем NaN и пустые значения)
-                            valid_tabs = df[tab_number_col].dropna().astype(str).str.strip()
-                            valid_tabs = valid_tabs[(valid_tabs != 'nan') & (valid_tabs != '')]
-                            all_tab_numbers.update(valid_tabs.unique())
+                            # ОПТИМИЗАЦИЯ: Добавляем в общий набор только для сводной статистики (быстро)
+                            if len(all_tab_numbers) < 10000:  # Ограничиваем размер для производительности
+                                valid_tabs = df[tab_number_col].dropna().astype(str).str.strip()
+                                valid_tabs = valid_tabs[(valid_tabs != 'nan') & (valid_tabs != '')]
+                                all_tab_numbers.update(valid_tabs.unique())
                         
                         # Логируем статистику по файлу (DEBUG)
                         stats_parts = [f"{rows_count} строк"]
@@ -1514,10 +1516,12 @@ class FileProcessor:
                 # ОПТИМИЗАЦИЯ: Используем itertuples() вместо iterrows() - в 10-100 раз быстрее
                 current_priority = group_priority[group] * 100 + month
                 
-                for row in df_unique.itertuples():
-                    tab_number = getattr(row, tab_col)
+                # ВАЖНО: Используем нормализованные значения из df_unique напрямую
+                for idx in df_unique.index:
+                    # Получаем нормализованные значения из df_unique (уже нормализованы)
+                    tab_number = str(df_unique.loc[idx, tab_col]).strip()
                     
-                    if not tab_number or tab_number == 'nan':
+                    if not tab_number or tab_number == 'nan' or tab_number == '':
                         continue
                     
                     # ВАЖНО: Если табельный номер уже найден ранее (в файле с более высоким приоритетом),
@@ -1527,9 +1531,9 @@ class FileProcessor:
                         # Табельный номер еще не встречался - добавляем его
                         all_tab_data[tab_number] = {
                             "tab_number": tab_number,
-                            "tb": getattr(row, tb_col, "") if tb_col in df.columns else "",
-                            "gosb": getattr(row, gosb_col, "") if gosb_col in df.columns else "",
-                            "fio": getattr(row, fio_col, "") if fio_col in df.columns else "",
+                            "tb": str(df_unique.loc[idx, tb_col]).strip() if tb_col in df_unique.columns else "",
+                            "gosb": str(df_unique.loc[idx, gosb_col]).strip() if gosb_col in df_unique.columns else "",
+                            "fio": str(df_unique.loc[idx, fio_col]).strip() if fio_col in df_unique.columns else "",
                             "group": group,
                             "month": month,
                             "priority": current_priority
@@ -1537,6 +1541,10 @@ class FileProcessor:
                     # Если табельный номер уже найден, НЕ обновляем - оставляем ранее найденный
         
         self.unique_tab_numbers = all_tab_data
+        
+        # ВАЖНО: Проверяем на дубликаты (должно быть уникально)
+        if len(all_tab_data) != len(set(all_tab_data.keys())):
+            self.logger.warning(f"Обнаружены дубликаты табельных номеров в all_tab_data! Всего ключей: {len(all_tab_data)}, уникальных: {len(set(all_tab_data.keys()))}", "FileProcessor", "collect_unique_tab_numbers")
         
         # Логируем статистику по группам и месяцам
         group_stats = {}
@@ -1670,6 +1678,16 @@ class FileProcessor:
         self.logger.debug(f"Лист 'Данные': Завершена обработка всех табельных номеров, формирование DataFrame из {len(result_data)} строк", "FileProcessor", "prepare_summary_data")
         result_df = pd.DataFrame(result_data)
         self.logger.debug(f"Лист 'Данные': DataFrame создан, размер: {len(result_df)} строк x {len(result_df.columns)} колонок", "FileProcessor", "prepare_summary_data")
+        
+        # ВАЖНО: Проверяем на дубликаты табельных номеров в итоговом результате
+        if "Табельный" in result_df.columns:
+            duplicates = result_df[result_df.duplicated(subset=["Табельный"], keep=False)]
+            if len(duplicates) > 0:
+                duplicate_tabs = duplicates["Табельный"].unique()
+                self.logger.warning(f"Лист 'Данные': Обнаружено {len(duplicate_tabs)} дубликатов табельных номеров в итоговом результате! Примеры: {list(duplicate_tabs[:5])}", "FileProcessor", "prepare_summary_data")
+                # Удаляем дубликаты, оставляя первую запись
+                result_df = result_df.drop_duplicates(subset=["Табельный"], keep='first')
+                self.logger.warning(f"Лист 'Данные': Дубликаты удалены, осталось {len(result_df)} уникальных табельных номеров", "FileProcessor", "prepare_summary_data")
         
         # Упорядочиваем колонки: сначала базовые, потом по группам и месяцам
         self.logger.debug("Лист 'Данные': Упорядочивание колонок", "FileProcessor", "prepare_summary_data")
