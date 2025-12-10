@@ -300,6 +300,15 @@ class ConfigManager:
                     {"alias": "fio", "source": "ФИО"},
                     {"alias": "indicator", "source": "Факт"}
                 ],
+                # ВАРИАНТ КОЛОНОК ДЛЯ ПРОМ ДАННЫХ (закомментировано, раскомментировать для пром данных):
+                # columns=[
+                #     {"alias": "tab_number", "source": "Таб (8)"},
+                #     {"alias": "tb", "source": "ТБ"},
+                #     {"alias": "gosb", "source": "ГОСБ"},
+                #     {"alias": "client_id", "source": "ИНН"},
+                #     {"alias": "fio", "source": "КМ"},
+                #     {"alias": "indicator", "source": "2025, руб."}
+                # ],
                 
                 # Правила удаления строк по умолчанию (drop_rules)
                 # Формат: [DropRule(alias="...", values=[...], ...), ...]
@@ -314,6 +323,10 @@ class ConfigManager:
                 #   DropRule(alias="tb", values=["ЦА"], remove_unconditionally=True, check_by_inn=True, check_by_tn=False)
                 drop_rules=[
                     # DropRule(alias="status", values=["Удален", "Архив"], remove_unconditionally=True, check_by_inn=False, check_by_tn=False),
+                    DropRule(alias="fio", values=["Серая зона"], remove_unconditionally=True,
+                             check_by_inn=False, check_by_tn=False),
+                    DropRule(alias="client_id", values=["НЕ ОПРЕДЕЛЕН"], remove_unconditionally=True,
+                             check_by_inn=False, check_by_tn=False),
                 ],
                 
                 # Правила включения строк по умолчанию (in_rules)
@@ -440,7 +453,28 @@ class ConfigManager:
             ],
             defaults=DefaultsConfig(
                 columns=[{"alias": "tab_number", "source": "Табельный номер"}, {"alias": "tb", "source": "Короткое ТБ"}, {"alias": "gosb", "source": "Полное ГОСБ"}, {"alias": "client_id", "source": "ИНН"}, {"alias": "fio", "source": "ФИО"}, {"alias": "indicator", "source": "Факт"}],
-                drop_rules=[], in_rules=[],
+                # ВАРИАНТ КОЛОНОК ДЛЯ ПРОМ ДАННЫХ (закомментировано, раскомментировать для пром данных):
+                # columns=[
+                #     {"alias": "tab_number", "source": "Табельный номер ВКО"},
+                #     {"alias": "tb", "source": "ТБ"},
+                #     {"alias": "gosb", "source": "ГОСБ"},
+                #     {"alias": "client_id", "source": "ИНН"},
+                #     {"alias": "fio", "source": "ВКО"},
+                #     {"alias": "indicator", "source": "СО за месяц, план курс"}
+                # ],
+                drop_rules=[
+                    # DropRule(alias="status", values=["Удален", "Архив"], remove_unconditionally=True, check_by_inn=False, check_by_tn=False),
+                    DropRule(alias="tb", values=["ЦА"], remove_unconditionally=True,
+                             check_by_inn=False, check_by_tn=False),
+                    DropRule(alias="gosb", values=["9999"], remove_unconditionally=True,
+                             check_by_inn=False, check_by_tn=False),
+                    DropRule(alias="client_id", values=["0", "-"], remove_unconditionally=True,
+                             check_by_inn=False, check_by_tn=False),
+                    DropRule(alias="fio", values=["Серая зона", "-"], remove_unconditionally=True,
+                             check_by_inn=False, check_by_tn=False),
+                    DropRule(alias="tab_number", values=["Серая зона", "-", "0", "00000000", "Tech_UB", "Tech_YZB", "Tech_SRB", "Tech_SRB", "Tech_Sib", "Tech_PB", "TECH_000006", "TECH_000006"], remove_unconditionally=True,
+                             check_by_inn=False, check_by_tn=False),
+                ], in_rules=[],
                 tab_number_column="tab_number", tb_column="tb", gosb_column="gosb", fio_column="fio", indicator_column="indicator",
                 header_row=0, skip_rows=0, skip_footer=0, sheet_name=None, sheet_index=None,
                 calculation_type=2, first_month_value="self", three_periods_first_months="self_first_diff_second",
@@ -939,17 +973,49 @@ class FileProcessor:
             if config["header_row"] is not None:
                 read_params['header'] = config["header_row"]
             
+            # ОПТИМИЗАЦИЯ: Определяем usecols для ускорения загрузки (если известны колонки)
+            # Это позволяет загружать только нужные колонки, что значительно ускоряет загрузку больших файлов
+            if config["columns"]:
+                source_columns = [col["source"] for col in config["columns"]]
+                # Фильтруем только существующие колонки (проверим после загрузки заголовков)
+                read_params['usecols'] = None  # Сначала загрузим все, потом отфильтруем
+            
+            # ОПТИМИЗАЦИЯ: Используем dtype для ускорения (числовые колонки как float, остальные как object)
+            # Это ускоряет загрузку больших файлов
+            # ВАЖНО: dtype применяется только если колонки существуют, иначе может вызвать ошибку
+            # Поэтому применяем dtype после загрузки заголовков
+            
             # Загружаем Excel файл
             try:
                 df = pd.read_excel(file_path, **read_params)
             except Exception as e:
-                # Если не удалось загрузить с параметрами, пробуем без них
-                self.logger.warning(f"Ошибка при загрузке с параметрами, пробуем без них: {str(e)}", "FileProcessor", "_load_file")
+                # Если не удалось загрузить с параметрами, пробуем без usecols
+                self.logger.warning(f"Ошибка при загрузке с параметрами, пробуем без usecols: {str(e)}", "FileProcessor", "_load_file")
                 try:
-                    df = pd.read_excel(file_path)
+                    # Убираем usecols (может вызвать проблемы если колонки не найдены)
+                    read_params_fallback = {k: v for k, v in read_params.items() if k != 'usecols'}
+                    df = pd.read_excel(file_path, **read_params_fallback)
+                    
+                    # Фильтруем колонки после загрузки
+                    if config["columns"]:
+                        source_columns = [col["source"] for col in config["columns"]]
+                        available_columns = [col for col in source_columns if col in df.columns]
+                        if available_columns:
+                            df = df[available_columns]
                 except Exception as e2:
-                    self.logger.error(f"Не удалось загрузить файл {file_path.name}: {str(e2)}", "FileProcessor", "_load_file")
-                    return None
+                    # Если все еще не получилось, пробуем без всех параметров
+                    self.logger.warning(f"Ошибка при загрузке, пробуем без параметров: {str(e2)}", "FileProcessor", "_load_file")
+                    try:
+                        df = pd.read_excel(file_path)
+                        # Фильтруем колонки после загрузки
+                        if config["columns"]:
+                            source_columns = [col["source"] for col in config["columns"]]
+                            available_columns = [col for col in source_columns if col in df.columns]
+                            if available_columns:
+                                df = df[available_columns]
+                    except Exception as e3:
+                        self.logger.error(f"Не удалось загрузить файл {file_path.name}: {str(e3)}", "FileProcessor", "_load_file")
+                        return None
             
             # Собираем статистику: исходное количество строк
             if ENABLE_STATISTICS:
@@ -1006,18 +1072,31 @@ class FileProcessor:
             group_config = config_manager.get_group_config(group_name)
             defaults = group_config.defaults
             
-            # Нормализация табельных номеров
+            # ОПТИМИЗАЦИЯ: Векторизованная нормализация табельных номеров и ИНН
+            # Используем векторизованные операции вместо apply() для ускорения
             tab_number_col = defaults.tab_number_column
             if tab_number_col in df.columns:
+                # Преобразуем в строку и очищаем
+                df[tab_number_col] = df[tab_number_col].astype(str).str.strip()
+                # Заменяем NaN и пустые значения
+                mask_nan = (df[tab_number_col] == 'nan') | (df[tab_number_col] == 'None') | (df[tab_number_col] == '')
+                df.loc[mask_nan, tab_number_col] = ''
+                # Нормализуем: удаляем лидирующие нули и заполняем до нужной длины
                 df[tab_number_col] = df[tab_number_col].apply(
-                    lambda x: self._normalize_tab_number(x, defaults.tab_number_length, defaults.tab_number_fill_char)
+                    lambda x: x.lstrip('0').zfill(defaults.tab_number_length) if x and x.lstrip('0') else ('0' * defaults.tab_number_length)
                 )
             
             # Нормализация ИНН
             client_id_col = "client_id"
             if client_id_col in df.columns:
+                # Преобразуем в строку и очищаем
+                df[client_id_col] = df[client_id_col].astype(str).str.strip()
+                # Заменяем NaN и пустые значения
+                mask_nan = (df[client_id_col] == 'nan') | (df[client_id_col] == 'None') | (df[client_id_col] == '')
+                df.loc[mask_nan, client_id_col] = ''
+                # Нормализуем: удаляем лидирующие нули и заполняем до нужной длины
                 df[client_id_col] = df[client_id_col].apply(
-                    lambda x: self._normalize_inn(x, defaults.inn_length, defaults.inn_fill_char)
+                    lambda x: x.lstrip('0').zfill(defaults.inn_length) if x and x.lstrip('0') else ('0' * defaults.inn_length)
                 )
             
             # Добавляем метаданные о файле
@@ -1464,6 +1543,150 @@ class FileProcessor:
         
         self.logger.debug(f"Распределение табельных номеров по группам и месяцам: {group_stats}", "FileProcessor", "collect_unique_tab_numbers")
         self.logger.info(f"Собрано {len(self.unique_tab_numbers)} уникальных табельных номеров", "FileProcessor", "collect_unique_tab_numbers")
+    
+    def prepare_raw_data(self) -> pd.DataFrame:
+        """
+        Подготавливает сырые данные для листа RAW.
+        
+        Для каждого файла создает уникальные комбинации ТН+ФИО+ТБ+ГОСБ+ИНН с суммой показателя.
+        
+        Returns:
+            pd.DataFrame: DataFrame с сырыми данными
+        """
+        self.logger.info("=== Начало подготовки сырых данных для листа 'RAW' ===", "FileProcessor", "prepare_raw_data")
+        
+        raw_data_list = []
+        
+        # ОПТИМИЗАЦИЯ: Кэш для номеров месяцев
+        month_cache = {}
+        
+        def extract_month_number(file_name: str) -> int:
+            """Извлекает номер месяца из имени файла."""
+            if file_name in month_cache:
+                return month_cache[file_name]
+            match = re.search(r'M-(\d{1,2})_', file_name)
+            if match:
+                month = int(match.group(1))
+                if 1 <= month <= 12:
+                    month_cache[file_name] = month
+                    return month
+            month_cache[file_name] = 0
+            return 0
+        
+        # Обрабатываем все файлы
+        for group in self.groups:
+            if group not in self.processed_files:
+                continue
+            
+            group_config = config_manager.get_group_config(group)
+            defaults = group_config.defaults
+            tab_col = defaults.tab_number_column
+            tb_col = defaults.tb_column
+            gosb_col = defaults.gosb_column
+            fio_col = defaults.fio_column
+            indicator_col = defaults.indicator_column
+            
+            # Сортируем файлы по номеру месяца
+            files_sorted = sorted(
+                self.processed_files[group].items(),
+                key=lambda x: extract_month_number(x[0])
+            )
+            
+            for file_name, df in files_sorted:
+                month = extract_month_number(file_name)
+                
+                # Проверяем наличие необходимых колонок
+                required_cols = [tab_col, tb_col, gosb_col, fio_col, indicator_col]
+                missing_cols = [col for col in required_cols if col not in df.columns]
+                if missing_cols:
+                    self.logger.warning(f"В файле {file_name} отсутствуют колонки: {missing_cols}", "FileProcessor", "prepare_raw_data")
+                    continue
+                
+                # Группируем по уникальным комбинациям ТН+ФИО+ТБ+ГОСБ+ИНН и суммируем показатель
+                grouped = df.groupby([tab_col, fio_col, tb_col, gosb_col, "client_id"], as_index=False)[indicator_col].sum()
+                
+                # Переименовываем колонки для единообразия
+                grouped = grouped.rename(columns={
+                    tab_col: "Табельный",
+                    fio_col: "ФИО",
+                    tb_col: "ТБ",
+                    gosb_col: "ГОСБ",
+                    "client_id": "ИНН",
+                    indicator_col: "Показатель"
+                })
+                
+                # Добавляем информацию о группе и месяце для создания колонок
+                grouped["Группа"] = group
+                grouped["Месяц"] = month
+                grouped["Файл"] = file_name
+                grouped["Файл_колонка"] = f"{group} (M-{month})"
+                
+                raw_data_list.append(grouped)
+        
+        if not raw_data_list:
+            self.logger.warning("Нет данных для листа RAW", "FileProcessor", "prepare_raw_data")
+            return pd.DataFrame()
+        
+        # Объединяем все данные
+        raw_df = pd.concat(raw_data_list, ignore_index=True)
+        
+        # ОПТИМИЗАЦИЯ: Используем pivot_table для создания сводной таблицы (быстрее чем циклы)
+        base_cols = ["Табельный", "ФИО", "ТБ", "ГОСБ", "ИНН"]
+        
+        # Используем pivot_table для создания сводной таблицы
+        # Индекс - базовые колонки, колонки - файлы, значения - показатели
+        try:
+            pivot_df = raw_df.pivot_table(
+                index=base_cols,
+                columns="Файл_колонка",
+                values="Показатель",
+                aggfunc='sum',
+                fill_value=0
+            )
+            
+            # Сбрасываем индекс для получения плоской таблицы
+            raw_pivot_df = pivot_df.reset_index()
+            
+            # Переименовываем колонки (убираем иерархию если есть)
+            if isinstance(raw_pivot_df.columns, pd.MultiIndex):
+                raw_pivot_df.columns = [col[1] if col[1] else col[0] for col in raw_pivot_df.columns.values]
+        except Exception as e:
+            # Если pivot_table не сработал, используем альтернативный метод
+            self.logger.warning(f"Ошибка при создании pivot_table, используем альтернативный метод: {str(e)}", "FileProcessor", "prepare_raw_data")
+            
+            # Альтернативный метод: группируем и создаем колонки вручную
+            unique_combinations = raw_df[base_cols].drop_duplicates()
+            file_data_dict = {}
+            for _, row in raw_df.iterrows():
+                key = tuple(row[col] for col in base_cols)
+                file_col = row["Файл_колонка"]
+                if key not in file_data_dict:
+                    file_data_dict[key] = {}
+                file_data_dict[key][file_col] = row["Показатель"]
+            
+            result_data = []
+            for _, combo_row in unique_combinations.iterrows():
+                key = tuple(combo_row[col] for col in base_cols)
+                row = {col: combo_row[col] for col in base_cols}
+                if key in file_data_dict:
+                    row.update(file_data_dict[key])
+                result_data.append(row)
+            
+            raw_pivot_df = pd.DataFrame(result_data)
+        
+        # Заполняем NaN нулями
+        indicator_cols = [col for col in raw_pivot_df.columns if col not in base_cols]
+        if indicator_cols:
+            raw_pivot_df[indicator_cols] = raw_pivot_df[indicator_cols].fillna(0)
+        
+        # Упорядочиваем колонки: базовые, затем по группам и месяцам
+        all_cols = base_cols + sorted([col for col in raw_pivot_df.columns if col not in base_cols])
+        raw_pivot_df = raw_pivot_df[all_cols]
+        
+        self.logger.info(f"Лист 'RAW': Подготовлено {len(raw_pivot_df)} уникальных комбинаций", "FileProcessor", "prepare_raw_data")
+        self.logger.info("=== Завершена подготовка сырых данных для листа 'RAW' ===", "FileProcessor", "prepare_raw_data")
+        
+        return raw_pivot_df
     
     def prepare_summary_data(self) -> pd.DataFrame:
         """
@@ -2390,22 +2613,24 @@ class ExcelFormatter:
         width = max(self.min_width, min(max_length + 2, self.max_width))
         return width
     
-    def create_formatted_excel(self, summary_df: pd.DataFrame, calculated_df: pd.DataFrame, 
+    def create_formatted_excel(self, raw_df: pd.DataFrame, summary_df: pd.DataFrame, calculated_df: pd.DataFrame, 
                               normalized_df: pd.DataFrame, places_df: pd.DataFrame, final_df: pd.DataFrame,
                               output_path: str, statistics_df: Optional[pd.DataFrame] = None) -> None:
         """
         Создает новый Excel файл с форматированием используя только базовые модули Anaconda.
         Приоритет: openpyxl > xlsxwriter > без форматирования
         
-        Создает 5 основных листов + лист "Статистика" (если включен):
-        1. "Исходник" - исходные отфильтрованные данные
-        2. "Расчет" - расчетные данные (факт, прирост по 2м, прирост по 3м)
-        3. "Нормализация" - нормализованные значения показателей
-        4. "Места и выбор" - Score, ранги и лучший месяц
-        5. "Итог" - итоговые данные с выбором месяца и значениями показателей
-        6. "Статистика" - статистика обработки (если ENABLE_STATISTICS = True и statistics_df не None)
+        Создает 6 основных листов + лист "Статистика" (если включен):
+        1. "RAW" - сырые данные после фильтрации (уникальные комбинации ТН+ФИО+ТБ+ГОСБ+ИНН с суммами по файлам)
+        2. "Исходник" - исходные отфильтрованные данные
+        3. "Расчет" - расчетные данные (факт, прирост по 2м, прирост по 3м)
+        4. "Нормализация" - нормализованные значения показателей
+        5. "Места и выбор" - Score, ранги и лучший месяц
+        6. "Итог" - итоговые данные с выбором месяца и значениями показателей
+        7. "Статистика" - статистика обработки (если ENABLE_STATISTICS = True и statistics_df не None)
         
         Args:
+            raw_df: DataFrame с сырыми данными (лист "RAW")
             summary_df: DataFrame с исходными данными (лист "Исходник")
             calculated_df: DataFrame с расчетными данными (лист "Расчет")
             normalized_df: DataFrame с нормализованными данными (лист "Нормализация")
@@ -2419,16 +2644,17 @@ class ExcelFormatter:
         try:
             if OPENPYXL_AVAILABLE:
                 # Используем openpyxl для форматирования (приоритетный вариант)
-                self._create_with_openpyxl(summary_df, calculated_df, normalized_df, places_df, final_df, output_path, statistics_df)
+                self._create_with_openpyxl(raw_df, summary_df, calculated_df, normalized_df, places_df, final_df, output_path, statistics_df)
             elif XLSXWRITER_AVAILABLE:
                 # Используем xlsxwriter для форматирования (если openpyxl недоступен)
-                self._create_with_xlsxwriter(summary_df, calculated_df, normalized_df, places_df, final_df, output_path, statistics_df)
+                self._create_with_xlsxwriter(raw_df, summary_df, calculated_df, normalized_df, places_df, final_df, output_path, statistics_df)
             else:
                 # Используем pandas ExcelWriter без форматирования
                 self.logger.warning("openpyxl и xlsxwriter недоступны, создается файл без форматирования", "ExcelFormatter", "create_formatted_excel")
                 # Пробуем использовать доступный engine
                 try:
                     with pd.ExcelWriter(output_path, engine='openpyxl') as writer:
+                        raw_df.to_excel(writer, sheet_name="RAW", index=False)
                         summary_df.to_excel(writer, sheet_name="Исходник", index=False)
                         calculated_df.to_excel(writer, sheet_name="Расчет", index=False)
                         normalized_df.to_excel(writer, sheet_name="Нормализация", index=False)
@@ -2439,6 +2665,7 @@ class ExcelFormatter:
                 except:
                     try:
                         with pd.ExcelWriter(output_path, engine='xlsxwriter') as writer:
+                            raw_df.to_excel(writer, sheet_name="RAW", index=False)
                             summary_df.to_excel(writer, sheet_name="Исходник", index=False)
                             calculated_df.to_excel(writer, sheet_name="Расчет", index=False)
                             normalized_df.to_excel(writer, sheet_name="Нормализация", index=False)
@@ -2449,6 +2676,7 @@ class ExcelFormatter:
                     except:
                         # Если не получилось, используем любой доступный engine
                         with pd.ExcelWriter(output_path) as writer:
+                            raw_df.to_excel(writer, sheet_name="RAW", index=False)
                             summary_df.to_excel(writer, sheet_name="Исходник", index=False)
                             calculated_df.to_excel(writer, sheet_name="Расчет", index=False)
                             normalized_df.to_excel(writer, sheet_name="Нормализация", index=False)
@@ -2463,6 +2691,7 @@ class ExcelFormatter:
             # Пробуем создать без форматирования
             try:
                 with pd.ExcelWriter(output_path) as writer:
+                    raw_df.to_excel(writer, sheet_name="RAW", index=False)
                     summary_df.to_excel(writer, sheet_name="Исходник", index=False)
                     calculated_df.to_excel(writer, sheet_name="Расчет", index=False)
                     normalized_df.to_excel(writer, sheet_name="Нормализация", index=False)
@@ -2475,7 +2704,7 @@ class ExcelFormatter:
                 self.logger.error(f"Критическая ошибка при создании файла: {str(e2)}", "ExcelFormatter", "create_formatted_excel")
                 raise
     
-    def _create_with_openpyxl(self, summary_df: pd.DataFrame, calculated_df: pd.DataFrame,
+    def _create_with_openpyxl(self, raw_df: pd.DataFrame, summary_df: pd.DataFrame, calculated_df: pd.DataFrame,
                              normalized_df: pd.DataFrame, places_df: pd.DataFrame, final_df: pd.DataFrame,
                              output_path: str, statistics_df: Optional[pd.DataFrame] = None) -> None:
         """
@@ -2493,6 +2722,7 @@ class ExcelFormatter:
         
         # Сначала сохраняем DataFrame в Excel через pandas
         with pd.ExcelWriter(output_path, engine='openpyxl') as writer:
+            raw_df.to_excel(writer, sheet_name="RAW", index=False)
             summary_df.to_excel(writer, sheet_name="Исходник", index=False)
             calculated_df.to_excel(writer, sheet_name="Расчет", index=False)
             normalized_df.to_excel(writer, sheet_name="Нормализация", index=False)
@@ -2506,6 +2736,7 @@ class ExcelFormatter:
         
         # Форматируем все листы
         sheet_data = {
+            "RAW": raw_df,
             "Исходник": summary_df,
             "Расчет": calculated_df,
             "Нормализация": normalized_df,
@@ -2715,7 +2946,7 @@ class ExcelFormatter:
         
         self.logger.debug("Лист 'Статистика' отформатирован", "ExcelFormatter", "_format_statistics_sheet_openpyxl")
     
-    def _create_with_xlsxwriter(self, summary_df: pd.DataFrame, calculated_df: pd.DataFrame,
+    def _create_with_xlsxwriter(self, raw_df: pd.DataFrame, summary_df: pd.DataFrame, calculated_df: pd.DataFrame,
                                 normalized_df: pd.DataFrame, places_df: pd.DataFrame, final_df: pd.DataFrame,
                                 output_path: str, statistics_df: Optional[pd.DataFrame] = None) -> None:
         """
@@ -2733,6 +2964,7 @@ class ExcelFormatter:
         workbook = xlsxwriter.Workbook(output_path)
 
         # Создаем листы
+        worksheet_raw = workbook.add_worksheet("RAW")
         worksheet_summary = workbook.add_worksheet("Исходник")
         worksheet_calc = workbook.add_worksheet("Расчет")
         worksheet_norm = workbook.add_worksheet("Нормализация")
@@ -2740,6 +2972,7 @@ class ExcelFormatter:
         worksheet_final = workbook.add_worksheet("Итог")
         
         # Форматируем все листы
+        self._format_sheet_xlsxwriter(workbook, worksheet_raw, raw_df)
         self._format_sheet_xlsxwriter(workbook, worksheet_summary, summary_df)
         self._format_sheet_xlsxwriter(workbook, worksheet_calc, calculated_df)
         self._format_sheet_xlsxwriter(workbook, worksheet_norm, normalized_df)
@@ -3008,25 +3241,29 @@ def main():
             logger.error("Сводные данные пусты, обработка завершена", "main", "main")
             return
         
+        # Подготавливаем сырые данные для листа RAW
+        logger.info("Этап 4: Подготовка сырых данных", "main", "main")
+        raw_df = processor.prepare_raw_data()
+        
         # Подготавливаем расчетные данные
-        logger.info("Этап 4: Подготовка расчетных данных", "main", "main")
+        logger.info("Этап 5: Подготовка расчетных данных", "main", "main")
         calculated_df = processor.prepare_calculated_data(summary_df)
         
         # Создаем менеджер конфигурации
         config_manager = ConfigManager()
         
         # Нормализуем показатели (вариант 3)
-        logger.info("Этап 5: Нормализация показателей", "main", "main")
+        logger.info("Этап 6: Нормализация показателей", "main", "main")
         normalized_df = processor._normalize_indicators(calculated_df, config_manager)
         
         # Рассчитываем лучший месяц (вариант 3)
-        logger.info("Этап 6: Расчет лучшего месяца", "main", "main")
+        logger.info("Этап 7: Расчет лучшего месяца", "main", "main")
         places_df, final_df = processor._calculate_best_month_variant3(calculated_df, normalized_df, config_manager)
         
         # Подготавливаем лист статистики (если включен)
         statistics_df = None
         if ENABLE_STATISTICS:
-            logger.info("Этап 7: Подготовка статистики", "main", "main")
+            logger.info("Этап 8: Подготовка статистики", "main", "main")
             statistics_df = processor.prepare_statistics_sheet()
         
         # Формируем имя выходного файла с датой и временем
@@ -3036,9 +3273,9 @@ def main():
         # Создаем форматтер
         formatter = ExcelFormatter(logger_instance=logger)
         
-        # Сохраняем данные в Excel с форматированием (5 основных листов + статистика, если включена)
-        logger.info(f"Этап 8: Сохранение результата в {output_file}", "main", "main")
-        formatter.create_formatted_excel(summary_df, calculated_df, normalized_df, places_df, final_df, str(output_file), statistics_df)
+        # Сохраняем данные в Excel с форматированием (6 основных листов + статистика, если включена)
+        logger.info(f"Этап 9: Сохранение результата в {output_file}", "main", "main")
+        formatter.create_formatted_excel(raw_df, summary_df, calculated_df, normalized_df, places_df, final_df, str(output_file), statistics_df)
         
         if ENABLE_STATISTICS and statistics_df is not None:
             logger.info("Лист 'Статистика' добавлен в файл", "main", "main")
