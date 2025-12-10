@@ -59,9 +59,8 @@ ENABLE_STATISTICS = True  # True - собирать статистику и со
 # Параметры оптимизации производительности
 ENABLE_PARALLEL_LOADING = True  # True - параллельная загрузка файлов, False - последовательная
 MAX_WORKERS = 4  # Количество потоков для параллельной загрузки (рекомендуется 2-4)
-ENABLE_CHUNKING = False  # True - использовать chunking для больших файлов, False - загружать целиком (chunking медленный, отключен)
+ENABLE_CHUNKING = True  # True - использовать chunking для больших файлов, False - загружать целиком
 CHUNK_SIZE = 50000  # Размер chunk для чтения больших файлов (строк)
-CHUNKING_THRESHOLD_MB = 200  # Порог размера файла для chunking (МБ) - если файл больше, используем chunking
 
 
 # ============================================================================
@@ -1045,15 +1044,14 @@ class FileProcessor:
                 read_params['usecols'] = source_columns
             
             # ОПТИМИЗАЦИЯ: Chunking для больших файлов
-            # ВАЖНО: Chunking через openpyxl очень медленный, поэтому отключен по умолчанию
-            # Используется только для очень больших файлов (>200 МБ)
+            # Если файл очень большой и включен chunking, загружаем по частям
             df = None
             if ENABLE_CHUNKING and OPENPYXL_AVAILABLE:
                 # Проверяем размер файла (приблизительно)
                 file_size_mb = file_path.stat().st_size / (1024 * 1024)
-                # Если файл больше порога, используем chunking
-                if file_size_mb > CHUNKING_THRESHOLD_MB:
-                    self.logger.debug(f"Файл {file_path.name} очень большой ({file_size_mb:.1f} МБ), используем chunking", "FileProcessor", "_load_file")
+                # Если файл больше 50 МБ, используем chunking
+                if file_size_mb > 50:
+                    self.logger.debug(f"Файл {file_path.name} большой ({file_size_mb:.1f} МБ), используем chunking", "FileProcessor", "_load_file")
                     try:
                         df = self._load_file_with_chunking(file_path, config, read_params)
                     except Exception as chunk_error:
@@ -2082,25 +2080,7 @@ class FileProcessor:
             pd.DataFrame: DataFrame с расчетными данными
         """
         self.logger.info("=== Начало подготовки расчетных данных для листа 'Расчеты' ===", "FileProcessor", "prepare_calculated_data")
-
-        # ОПТИМИЗАЦИЯ: Конвертируем все числовые колонки в числовой тип перед вычислениями
-        # Это исправляет ошибку "unsupported operand type(s) for -: 'str' and 'float'"
-        numeric_columns = summary_df.select_dtypes(include=['object']).columns
-        for col in numeric_columns:
-            # Пробуем конвертировать в числовой тип
-            try:
-                summary_df[col] = pd.to_numeric(summary_df[col], errors='coerce')
-            except Exception:
-                pass  # Если не получилось, оставляем как есть
         
-        # Также конвертируем все числовые колонки, которые могут быть строковыми
-        for col in summary_df.columns:
-            if col not in ['Табельный', 'ФИО', 'ТБ', 'ГОСБ', 'ИНН']:  # Пропускаем текстовые колонки
-                try:
-                    summary_df[col] = pd.to_numeric(summary_df[col], errors='coerce')
-                except Exception:
-                    pass
-
         # ОПТИМИЗАЦИЯ: Кэш для номеров месяцев
         month_cache = {}
         
@@ -2246,36 +2226,30 @@ class FileProcessor:
                 
                 if calc_type == 1:
                     # Вариант 1: Как есть - просто копируем значение
-                    # ОПТИМИЗАЦИЯ: Конвертируем в числовой тип
-                    calculated_df[full_name] = pd.to_numeric(summary_df[full_name], errors='coerce').fillna(0)
+                    calculated_df[full_name] = summary_df[full_name]
                 
                 elif calc_type == 2:
                     # Вариант 2: Прирост по 2 месяцам
                     if idx == 0:
                         # Первый месяц
                         if first_month_val == "self":
-                            # ОПТИМИЗАЦИЯ: Конвертируем в числовой тип
-                            calculated_df[full_name] = pd.to_numeric(summary_df[full_name], errors='coerce').fillna(0)
+                            calculated_df[full_name] = summary_df[full_name]
                         else:  # "zero"
                             calculated_df[full_name] = 0
                     else:
                         # Текущий месяц минус предыдущий
                         prev_file_name = group_files[idx - 1][2]
                         if prev_file_name in summary_df.columns:
-                            # ОПТИМИЗАЦИЯ: Конвертируем в числовой тип перед вычислением
-                            curr_val = pd.to_numeric(summary_df[full_name], errors='coerce').fillna(0)
-                            prev_val = pd.to_numeric(summary_df[prev_file_name], errors='coerce').fillna(0)
-                            calculated_df[full_name] = curr_val - prev_val
+                            calculated_df[full_name] = summary_df[full_name] - summary_df[prev_file_name]
                         else:
-                            calculated_df[full_name] = pd.to_numeric(summary_df[full_name], errors='coerce').fillna(0)
+                            calculated_df[full_name] = summary_df[full_name]
                 
                 elif calc_type == 3:
                     # Вариант 3: Прирост по трем периодам (М-3 - 2*М-2 + М-1)
                     if idx == 0:
                         # Первый месяц
                         if three_periods_mode == "self_first_diff_second":
-                            # ОПТИМИЗАЦИЯ: Конвертируем в числовой тип
-                            calculated_df[full_name] = pd.to_numeric(summary_df[full_name], errors='coerce').fillna(0)
+                            calculated_df[full_name] = summary_df[full_name]
                         else:  # "zero_both" или "zero_first_diff_second"
                             calculated_df[full_name] = 0
                     elif idx == 1:
@@ -2285,28 +2259,17 @@ class FileProcessor:
                         else:  # "zero_first_diff_second" или "self_first_diff_second"
                             prev_file_name = group_files[0][2]
                             if prev_file_name in summary_df.columns:
-                                # ОПТИМИЗАЦИЯ: Конвертируем в числовой тип перед вычислением
-                                curr_val = pd.to_numeric(summary_df[full_name], errors='coerce').fillna(0)
-                                prev_val = pd.to_numeric(summary_df[prev_file_name], errors='coerce').fillna(0)
-                                calculated_df[full_name] = curr_val - prev_val
+                                calculated_df[full_name] = summary_df[full_name] - summary_df[prev_file_name]
                             else:
-                                calculated_df[full_name] = pd.to_numeric(summary_df[full_name], errors='coerce').fillna(0)
+                                calculated_df[full_name] = summary_df[full_name]
                     else:
                         # М-3 - 2*М-2 + М-1
-                        # ОПТИМИЗАЦИЯ: Конвертируем в числовой тип перед вычислением
-                        curr_val = pd.to_numeric(summary_df[full_name], errors='coerce').fillna(0)
+                        curr_val = summary_df[full_name]
                         prev1_file_name = group_files[idx - 1][2]
                         prev2_file_name = group_files[idx - 2][2]
                         
-                        if prev1_file_name in summary_df.columns:
-                            prev1_val = pd.to_numeric(summary_df[prev1_file_name], errors='coerce').fillna(0)
-                        else:
-                            prev1_val = 0
-                        
-                        if prev2_file_name in summary_df.columns:
-                            prev2_val = pd.to_numeric(summary_df[prev2_file_name], errors='coerce').fillna(0)
-                        else:
-                            prev2_val = 0
+                        prev1_val = summary_df[prev1_file_name] if prev1_file_name in summary_df.columns else 0
+                        prev2_val = summary_df[prev2_file_name] if prev2_file_name in summary_df.columns else 0
                         
                         calculated_df[full_name] = curr_val - 2 * prev1_val + prev2_val
         
