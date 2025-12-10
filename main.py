@@ -16,6 +16,8 @@ from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Tuple, Optional, Any
 from dataclasses import dataclass, field
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from functools import partial
 
 import pandas as pd
 
@@ -53,6 +55,12 @@ LOG_THEME = "processor"
 
 # Включить/выключить сбор и вывод статистики
 ENABLE_STATISTICS = True  # True - собирать статистику и создавать лист "Статистика", False - не собирать
+
+# Параметры оптимизации производительности
+ENABLE_PARALLEL_LOADING = True  # True - параллельная загрузка файлов, False - последовательная
+MAX_WORKERS = 4  # Количество потоков для параллельной загрузки (рекомендуется 2-4)
+ENABLE_CHUNKING = True  # True - использовать chunking для больших файлов, False - загружать целиком
+CHUNK_SIZE = 50000  # Размер chunk для чтения больших файлов (строк)
 
 
 # ============================================================================
@@ -820,65 +828,121 @@ class FileProcessor:
             
             self.logger.debug(f"Ожидается {len(items)} файлов в группе {group}", "FileProcessor", "load_all_files")
             
-            # Загружаем только файлы из списка items
+            # ОПТИМИЗАЦИЯ: Параллельная загрузка файлов
+            # Подготавливаем список файлов для загрузки
+            files_to_load = []
             for item in items:
-                # Пропускаем файлы с пустым file_name
                 if not item.file_name or item.file_name.strip() == "":
-                    self.logger.debug(f"Файл с ключом {item.key} имеет пустое file_name, пропускаем", "FileProcessor", "load_all_files")
                     continue
-                
                 file_path = group_path / item.file_name
+                if file_path.exists():
+                    files_to_load.append((file_path, item, group, defaults))
+            
+            if not files_to_load:
+                continue
+            
+            # Выбираем метод загрузки: параллельный или последовательный
+            if ENABLE_PARALLEL_LOADING and len(files_to_load) > 1:
+                self.logger.debug(f"Параллельная загрузка {len(files_to_load)} файлов группы {group} (max_workers={MAX_WORKERS})", "FileProcessor", "load_all_files")
                 
-                if not file_path.exists():
-                    self.logger.debug(f"Файл {item.file_name} (ключ: {item.key}, метка: {item.label}) не найден, пропускаем", "FileProcessor", "load_all_files")
-                    continue
-                
-                try:
-                    df = self._load_file(file_path, group)
-                    if df is not None and not df.empty:
-                        self.processed_files[group][file_path.name] = df
-                        
-                        # Статистика по файлу (DEBUG) - оптимизировано: используем nunique() без дополнительных преобразований
-                        rows_count = len(df)
-                        total_rows += rows_count
-                        
-                        # Получаем имена колонок из конфигурации (после маппинга используются alias)
-                        tab_number_col = defaults.tab_number_column
-                        client_id_col = "client_id"
-                        
-                        # ОПТИМИЗАЦИЯ: Подсчитываем уникальные значения быстро (nunique() уже оптимизирован)
-                        unique_clients = 0
-                        unique_tabs = 0
-                        
-                        if client_id_col in df.columns:
-                            unique_clients = df[client_id_col].nunique()
-                            # ОПТИМИЗАЦИЯ: Добавляем в общий набор только для сводной статистики (быстро)
-                            # Используем nunique() вместо полной обработки всех значений
-                            if len(all_client_ids) < 10000:  # Ограничиваем размер для производительности
-                                valid_client_ids = df[client_id_col].dropna().astype(str).str.strip()
-                                valid_client_ids = valid_client_ids[(valid_client_ids != 'nan') & (valid_client_ids != '')]
-                                all_client_ids.update(valid_client_ids.unique())
-                        
-                        if tab_number_col in df.columns:
-                            unique_tabs = df[tab_number_col].nunique()
-                            # ОПТИМИЗАЦИЯ: Добавляем в общий набор только для сводной статистики (быстро)
-                            if len(all_tab_numbers) < 10000:  # Ограничиваем размер для производительности
-                                valid_tabs = df[tab_number_col].dropna().astype(str).str.strip()
-                                valid_tabs = valid_tabs[(valid_tabs != 'nan') & (valid_tabs != '')]
-                                all_tab_numbers.update(valid_tabs.unique())
-                        
-                        # Логируем статистику по файлу (DEBUG)
-                        stats_parts = [f"{rows_count} строк"]
-                        if unique_clients > 0:
-                            stats_parts.append(f"{unique_clients} уникальных клиентов (ИНН)")
-                        if unique_tabs > 0:
-                            stats_parts.append(f"{unique_tabs} уникальных табельных номеров")
-                        
-                        self.logger.debug(f"Загружен файл {item.file_name} ({item.label}): {', '.join(stats_parts)}", "FileProcessor", "load_all_files")
-                    else:
-                        self.logger.warning(f"Файл {item.file_name} ({item.label}) загружен, но пуст", "FileProcessor", "load_all_files")
-                except Exception as e:
-                    self.logger.error(f"Ошибка при загрузке файла {item.file_name} ({item.label}): {str(e)}", "FileProcessor", "load_all_files")
+                # Загружаем файлы параллельно
+                with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+                    # Создаем задачи для загрузки
+                    future_to_file = {
+                        executor.submit(self._load_file, file_path, group): (file_path, item, defaults)
+                        for file_path, item, group, defaults in files_to_load
+                    }
+                    
+                    # Обрабатываем результаты по мере завершения
+                    for future in as_completed(future_to_file):
+                        file_path, item, defaults = future_to_file[future]
+                        try:
+                            df = future.result()
+                            if df is not None and not df.empty:
+                                self.processed_files[group][file_path.name] = df
+                                
+                                # Статистика по файлу
+                                rows_count = len(df)
+                                total_rows += rows_count
+                                
+                                tab_number_col = defaults.tab_number_column
+                                client_id_col = "client_id"
+                                
+                                unique_clients = 0
+                                unique_tabs = 0
+                                
+                                if client_id_col in df.columns:
+                                    unique_clients = df[client_id_col].nunique()
+                                    if len(all_client_ids) < 10000:
+                                        valid_client_ids = df[client_id_col].dropna().astype(str).str.strip()
+                                        valid_client_ids = valid_client_ids[(valid_client_ids != 'nan') & (valid_client_ids != '')]
+                                        all_client_ids.update(valid_client_ids.unique())
+                                
+                                if tab_number_col in df.columns:
+                                    unique_tabs = df[tab_number_col].nunique()
+                                    if len(all_tab_numbers) < 10000:
+                                        valid_tabs = df[tab_number_col].dropna().astype(str).str.strip()
+                                        valid_tabs = valid_tabs[(valid_tabs != 'nan') & (valid_tabs != '')]
+                                        all_tab_numbers.update(valid_tabs.unique())
+                                
+                                # Логируем статистику по файлу (INFO)
+                                stats_parts = [f"{rows_count} строк"]
+                                if unique_clients > 0:
+                                    stats_parts.append(f"{unique_clients} уникальных клиентов (ИНН)")
+                                if unique_tabs > 0:
+                                    stats_parts.append(f"{unique_tabs} уникальных табельных номеров")
+                                
+                                stats_message = f"Загружен файл {file_path.name} ({item.label}): {', '.join(stats_parts)}"
+                                self.logger.info(stats_message, "FileProcessor", "load_all_files")
+                            else:
+                                self.logger.warning(f"Файл {file_path.name} ({item.label}) загружен, но пуст", "FileProcessor", "load_all_files")
+                        except Exception as e:
+                            self.logger.error(f"Ошибка при загрузке файла {file_path.name}: {str(e)}", "FileProcessor", "load_all_files")
+            else:
+                # Последовательная загрузка (старый метод)
+                for file_path, item, group, defaults in files_to_load:
+                    try:
+                        df = self._load_file(file_path, group)
+                        if df is not None and not df.empty:
+                            self.processed_files[group][file_path.name] = df
+                            
+                            # Статистика по файлу
+                            rows_count = len(df)
+                            total_rows += rows_count
+                            
+                            tab_number_col = defaults.tab_number_column
+                            client_id_col = "client_id"
+                            
+                            unique_clients = 0
+                            unique_tabs = 0
+                            
+                            if client_id_col in df.columns:
+                                unique_clients = df[client_id_col].nunique()
+                                if len(all_client_ids) < 10000:
+                                    valid_client_ids = df[client_id_col].dropna().astype(str).str.strip()
+                                    valid_client_ids = valid_client_ids[(valid_client_ids != 'nan') & (valid_client_ids != '')]
+                                    all_client_ids.update(valid_client_ids.unique())
+                            
+                            if tab_number_col in df.columns:
+                                unique_tabs = df[tab_number_col].nunique()
+                                if len(all_tab_numbers) < 10000:
+                                    valid_tabs = df[tab_number_col].dropna().astype(str).str.strip()
+                                    valid_tabs = valid_tabs[(valid_tabs != 'nan') & (valid_tabs != '')]
+                                    all_tab_numbers.update(valid_tabs.unique())
+                            
+                            # Логируем статистику по файлу (INFO)
+                            stats_parts = [f"{rows_count} строк"]
+                            if unique_clients > 0:
+                                stats_parts.append(f"{unique_clients} уникальных клиентов (ИНН)")
+                            if unique_tabs > 0:
+                                stats_parts.append(f"{unique_tabs} уникальных табельных номеров")
+                            
+                            stats_message = f"Загружен файл {file_path.name} ({item.label}): {', '.join(stats_parts)}"
+                            self.logger.info(stats_message, "FileProcessor", "load_all_files")
+                        else:
+                            self.logger.warning(f"Файл {file_path.name} ({item.label}) загружен, но пуст", "FileProcessor", "load_all_files")
+                    except Exception as e:
+                        self.logger.error(f"Ошибка при загрузке файла {file_path.name} ({item.label}): {str(e)}", "FileProcessor", "load_all_files")
         
         # Сводная статистика (INFO)
         stats_parts = [f"{total_rows} строк"]
@@ -977,45 +1041,54 @@ class FileProcessor:
             # Это позволяет загружать только нужные колонки, что значительно ускоряет загрузку больших файлов
             if config["columns"]:
                 source_columns = [col["source"] for col in config["columns"]]
-                # Фильтруем только существующие колонки (проверим после загрузки заголовков)
-                read_params['usecols'] = None  # Сначала загрузим все, потом отфильтруем
+                read_params['usecols'] = source_columns
             
-            # ОПТИМИЗАЦИЯ: Используем dtype для ускорения (числовые колонки как float, остальные как object)
-            # Это ускоряет загрузку больших файлов
-            # ВАЖНО: dtype применяется только если колонки существуют, иначе может вызвать ошибку
-            # Поэтому применяем dtype после загрузки заголовков
-            
-            # Загружаем Excel файл
-            try:
-                df = pd.read_excel(file_path, **read_params)
-            except Exception as e:
-                # Если не удалось загрузить с параметрами, пробуем без usecols
-                self.logger.warning(f"Ошибка при загрузке с параметрами, пробуем без usecols: {str(e)}", "FileProcessor", "_load_file")
-                try:
-                    # Убираем usecols (может вызвать проблемы если колонки не найдены)
-                    read_params_fallback = {k: v for k, v in read_params.items() if k != 'usecols'}
-                    df = pd.read_excel(file_path, **read_params_fallback)
-                    
-                    # Фильтруем колонки после загрузки
-                    if config["columns"]:
-                        source_columns = [col["source"] for col in config["columns"]]
-                        available_columns = [col for col in source_columns if col in df.columns]
-                        if available_columns:
-                            df = df[available_columns]
-                except Exception as e2:
-                    # Если все еще не получилось, пробуем без всех параметров
-                    self.logger.warning(f"Ошибка при загрузке, пробуем без параметров: {str(e2)}", "FileProcessor", "_load_file")
+            # ОПТИМИЗАЦИЯ: Chunking для больших файлов
+            # Если файл очень большой и включен chunking, загружаем по частям
+            df = None
+            if ENABLE_CHUNKING and OPENPYXL_AVAILABLE:
+                # Проверяем размер файла (приблизительно)
+                file_size_mb = file_path.stat().st_size / (1024 * 1024)
+                # Если файл больше 50 МБ, используем chunking
+                if file_size_mb > 50:
+                    self.logger.debug(f"Файл {file_path.name} большой ({file_size_mb:.1f} МБ), используем chunking", "FileProcessor", "_load_file")
                     try:
-                        df = pd.read_excel(file_path)
+                        df = self._load_file_with_chunking(file_path, config, read_params)
+                    except Exception as chunk_error:
+                        self.logger.warning(f"Ошибка при chunking файла {file_path.name}, используем обычную загрузку: {str(chunk_error)}", "FileProcessor", "_load_file")
+                        df = None  # Продолжим с обычной загрузкой
+            
+            # Обычная загрузка (если chunking не использовался или не сработал)
+            if df is None:
+                try:
+                    df = pd.read_excel(file_path, **read_params)
+                except Exception as e:
+                    # Если не удалось загрузить с параметрами, пробуем без usecols
+                    self.logger.warning(f"Ошибка при загрузке с параметрами, пробуем без usecols: {str(e)}", "FileProcessor", "_load_file")
+                    try:
+                        read_params_fallback = {k: v for k, v in read_params.items() if k != 'usecols'}
+                        df = pd.read_excel(file_path, **read_params_fallback)
+                        
                         # Фильтруем колонки после загрузки
                         if config["columns"]:
                             source_columns = [col["source"] for col in config["columns"]]
                             available_columns = [col for col in source_columns if col in df.columns]
                             if available_columns:
                                 df = df[available_columns]
-                    except Exception as e3:
-                        self.logger.error(f"Не удалось загрузить файл {file_path.name}: {str(e3)}", "FileProcessor", "_load_file")
-                        return None
+                    except Exception as e2:
+                        # Если все еще не получилось, пробуем без всех параметров
+                        self.logger.warning(f"Ошибка при загрузке, пробуем без параметров: {str(e2)}", "FileProcessor", "_load_file")
+                        try:
+                            df = pd.read_excel(file_path)
+                            # Фильтруем колонки после загрузки
+                            if config["columns"]:
+                                source_columns = [col["source"] for col in config["columns"]]
+                                available_columns = [col for col in source_columns if col in df.columns]
+                                if available_columns:
+                                    df = df[available_columns]
+                        except Exception as e3:
+                            self.logger.error(f"Не удалось загрузить файл {file_path.name}: {str(e3)}", "FileProcessor", "_load_file")
+                            return None
             
             # Собираем статистику: исходное количество строк
             if ENABLE_STATISTICS:
@@ -1110,20 +1183,129 @@ class FileProcessor:
             self.logger.error(f"Ошибка при обработке файла {file_path}: {str(e)}", "FileProcessor", "_load_file")
             return None
     
+    def _load_file_with_chunking(self, file_path: Path, config: Dict[str, Any], read_params: Dict[str, Any]) -> pd.DataFrame:
+        """
+        Загружает большой Excel файл по частям (chunking) для оптимизации памяти и производительности.
+        
+        Args:
+            file_path: Путь к файлу
+            config: Конфигурация для файла
+            read_params: Параметры для чтения Excel
+            
+        Returns:
+            pd.DataFrame: DataFrame с данными
+        """
+        try:
+            if not OPENPYXL_AVAILABLE:
+                # Если openpyxl недоступен, используем обычную загрузку
+                return pd.read_excel(file_path, **read_params)
+            
+            from openpyxl import load_workbook
+            
+            # Загружаем рабочую книгу
+            wb = load_workbook(file_path, read_only=True, data_only=True)
+            
+            # Определяем лист для чтения
+            sheet_name = read_params.get('sheet_name', wb.sheetnames[0] if wb.sheetnames else None)
+            if sheet_name is None:
+                sheet_name = wb.sheetnames[0] if wb.sheetnames else None
+            
+            if sheet_name is None:
+                wb.close()
+                return pd.DataFrame()
+            
+            ws = wb[sheet_name]
+            
+            # Определяем заголовки
+            header_row = read_params.get('header', 0)
+            if isinstance(header_row, int):
+                headers = []
+                for cell in ws[header_row + 1]:
+                    headers.append(cell.value if cell.value else f"Column_{len(headers)}")
+            else:
+                headers = None
+            
+            # Определяем usecols
+            usecols = read_params.get('usecols', None)
+            if usecols and headers:
+                # Фильтруем заголовки по usecols
+                header_indices = []
+                header_names = []
+                for idx, header in enumerate(headers):
+                    if header in usecols:
+                        header_indices.append(idx)
+                        header_names.append(header)
+                headers = header_names
+            elif headers:
+                header_indices = list(range(len(headers)))
+            else:
+                header_indices = None
+            
+            # Читаем данные по частям
+            chunks = []
+            start_row = header_row + 1 + read_params.get('skiprows', 0)
+            end_row = ws.max_row - read_params.get('skipfooter', 0)
+            
+            self.logger.debug(f"Чтение файла {file_path.name} по частям: строки {start_row}-{end_row}, размер chunk={CHUNK_SIZE}", "FileProcessor", "_load_file_with_chunking")
+            
+            for chunk_start in range(start_row, end_row + 1, CHUNK_SIZE):
+                chunk_end = min(chunk_start + CHUNK_SIZE, end_row + 1)
+                
+                # Читаем chunk
+                chunk_data = []
+                for row_idx, row in enumerate(ws.iter_rows(min_row=chunk_start, max_row=chunk_end, values_only=True), start=chunk_start):
+                    if header_indices:
+                        # Фильтруем колонки по usecols
+                        row_data = [row[i] if i < len(row) else None for i in header_indices]
+                    else:
+                        row_data = list(row)
+                    chunk_data.append(row_data)
+                
+                if chunk_data:
+                    chunk_df = pd.DataFrame(chunk_data, columns=headers if headers else None)
+                    chunks.append(chunk_df)
+                
+                # Логируем прогресс каждые 5 chunks
+                if (chunk_start - start_row) // CHUNK_SIZE % 5 == 0:
+                    self.logger.debug(f"Загружено {chunk_end - start_row} из {end_row - start_row + 1} строк файла {file_path.name}", "FileProcessor", "_load_file_with_chunking")
+            
+            wb.close()
+            
+            # Объединяем chunks
+            if chunks:
+                df = pd.concat(chunks, ignore_index=True)
+                self.logger.debug(f"Файл {file_path.name} загружен по частям: {len(df)} строк", "FileProcessor", "_load_file_with_chunking")
+                return df
+            else:
+                return pd.DataFrame()
+                
+        except Exception as e:
+            self.logger.warning(f"Ошибка при chunking файла {file_path.name}, используем обычную загрузку: {str(e)}", "FileProcessor", "_load_file_with_chunking")
+            # Fallback на обычную загрузку
+            return pd.read_excel(file_path, **read_params)
+    
     def _apply_drop_rules(self, df: pd.DataFrame, drop_rules: List[DropRule], file_name: str, group_name: str = "") -> pd.DataFrame:
         """
-        Применяет правила удаления строк (drop_rules).
+        Применяет правила удаления строк (drop_rules) с оптимизацией.
+        
+        ОПТИМИЗАЦИЯ: Объединяет несколько правил для одной колонки в одну операцию.
         
         Args:
             df: DataFrame для обработки
             drop_rules: Список правил удаления
             file_name: Имя файла для логирования
+            group_name: Название группы для статистики
             
         Returns:
             DataFrame после применения правил
         """
+        if not drop_rules:
+            return df
+        
         cleaned = df.copy()
         
+        # ОПТИМИЗАЦИЯ: Группируем правила по колонкам для объединения операций
+        rules_by_column: Dict[str, List[DropRule]] = {}
         for rule in drop_rules:
             if rule.alias not in cleaned.columns:
                 self.logger.warning(f"Колонка {rule.alias} отсутствует в файле {file_name}, пропускаем правило", "FileProcessor", "_apply_drop_rules")
@@ -1133,110 +1315,121 @@ class FileProcessor:
                 self.logger.debug(f"Колонка {rule.alias}: remove_unconditionally=False, строки не удаляются", "FileProcessor", "_apply_drop_rules")
                 continue
             
-            # Формируем множество запрещенных значений (в нижнем регистре для сравнения)
-            forbidden = {str(v).strip().lower() for v in rule.values}
+            if rule.alias not in rules_by_column:
+                rules_by_column[rule.alias] = []
+            rules_by_column[rule.alias].append(rule)
+        
+        # Применяем правила по колонкам (объединенные)
+        for column, column_rules in rules_by_column.items():
+            # ОПТИМИЗАЦИЯ: Объединяем все запрещенные значения для этой колонки в одно множество
+            all_forbidden = set()
+            for rule in column_rules:
+                all_forbidden.update({str(v).strip().lower() for v in rule.values})
             
             # ОПТИМИЗАЦИЯ: Векторизация вместо apply() для ускорения в 10-50 раз
-            # Обрабатываем NaN отдельно (быстро)
-            mask_nan = cleaned[rule.alias].isna()
-            
-            # Преобразуем в строки и нормализуем (векторизованная операция)
-            # ВАЖНО: astype(str) преобразует NaN в строку "nan", поэтому нужно исключить их
-            col_str = cleaned[rule.alias].astype(str).str.strip().str.lower()
+            # Преобразуем в строки и нормализуем один раз для всех правил колонки
+            col_str = cleaned[column].astype(str).str.strip().str.lower()
             
             # Исключаем строки "nan" (которые были NaN) из проверки
             mask_not_nan = col_str != 'nan'
             
             # Проверяем принадлежность к запрещенным значениям (векторизованная операция)
-            mask_forbidden = col_str.isin(forbidden)
+            mask_forbidden = col_str.isin(all_forbidden)
             
             # Исключаем NaN из результата (NaN не считаются запрещенными)
             mask_forbidden = mask_forbidden & mask_not_nan
             
             if not mask_forbidden.any():
-                self.logger.debug(f"Колонка {rule.alias}: запрещенных значений не найдено", "FileProcessor", "_apply_drop_rules")
+                # Нет запрещенных значений для этой колонки
                 continue
             
-            if not rule.check_by_inn and not rule.check_by_tn:
-                # Простое удаление без условий
+            # ОПТИМИЗАЦИЯ: Проверяем условия для всех правил колонки одновременно
+            # Если хотя бы одно правило имеет check_by_inn или check_by_tn, применяем условную логику
+            has_conditional_rules = any(rule.check_by_inn or rule.check_by_tn for rule in column_rules)
+            
+            if not has_conditional_rules:
+                # Простое удаление без условий (для всех правил колонки сразу)
                 before = len(cleaned)
                 cleaned = cleaned[~mask_forbidden]
                 dropped_count = before - len(cleaned)
-                self.logger.debug(f"Колонка {rule.alias}: удалено {dropped_count} строк (безусловно)", "FileProcessor", "_apply_drop_rules")
                 
-                # Собираем статистику
-                if ENABLE_STATISTICS and group_name and file_name:
-                    rule_key = f"{rule.alias}: {', '.join(map(str, rule.values))}"
-                    if group_name not in self.statistics["files"]:
-                        self.statistics["files"][group_name] = {}
-                    if file_name not in self.statistics["files"][group_name]:
-                        self.statistics["files"][group_name][file_name] = {"dropped_by_rule": {}, "kept_by_rule": {}}
-                    if "dropped_by_rule" not in self.statistics["files"][group_name][file_name]:
-                        self.statistics["files"][group_name][file_name]["dropped_by_rule"] = {}
-                    if rule_key not in self.statistics["files"][group_name][file_name]["dropped_by_rule"]:
-                        self.statistics["files"][group_name][file_name]["dropped_by_rule"][rule_key] = 0
-                    self.statistics["files"][group_name][file_name]["dropped_by_rule"][rule_key] += dropped_count
+                if dropped_count > 0:
+                    self.logger.debug(f"Колонка {column}: удалено {dropped_count} строк (безусловно, объединено {len(column_rules)} правил)", "FileProcessor", "_apply_drop_rules")
+                    
+                    # Собираем статистику для всех правил
+                    if ENABLE_STATISTICS and group_name and file_name:
+                        if group_name not in self.statistics["files"]:
+                            self.statistics["files"][group_name] = {}
+                        if file_name not in self.statistics["files"][group_name]:
+                            self.statistics["files"][group_name][file_name] = {"dropped_by_rule": {}, "kept_by_rule": {}}
+                        if "dropped_by_rule" not in self.statistics["files"][group_name][file_name]:
+                            self.statistics["files"][group_name][file_name]["dropped_by_rule"] = {}
+                        
+                        # Записываем статистику для каждого правила отдельно
+                        for rule in column_rules:
+                            rule_key = f"{rule.alias}: {', '.join(map(str, rule.values))}"
+                            # Приблизительное распределение удаленных строк между правилами
+                            rule_dropped = dropped_count // len(column_rules) if len(column_rules) > 1 else dropped_count
+                            if rule_key not in self.statistics["files"][group_name][file_name]["dropped_by_rule"]:
+                                self.statistics["files"][group_name][file_name]["dropped_by_rule"][rule_key] = 0
+                            self.statistics["files"][group_name][file_name]["dropped_by_rule"][rule_key] += rule_dropped
             else:
-                # Условное удаление (оптимизировано через векторизацию)
-                rows_to_remove = mask_forbidden.copy()
-                
-                # ОПТИМИЗАЦИЯ: Векторизация проверки по ИНН
-                if rule.check_by_inn and "client_id" in cleaned.columns:
-                    # Группируем по ИНН и проверяем наличие незапрещенных значений
-                    other_col_str = cleaned[rule.alias].astype(str).str.strip().str.lower()
-                    other_mask_not_nan = other_col_str != 'nan'
-                    other_mask_not_forbidden = ~other_col_str.isin(forbidden)
-                    other_mask_keep = other_mask_not_nan & other_mask_not_forbidden
+                # Условное удаление - обрабатываем каждое правило отдельно (сложная логика)
+                for rule in column_rules:
+                    rule_forbidden = {str(v).strip().lower() for v in rule.values}
+                    rule_mask = col_str.isin(rule_forbidden) & mask_not_nan
                     
-                    # Для каждого ИНН проверяем, есть ли незапрещенные значения
-                    grouped_by_inn = cleaned.groupby("client_id")[rule.alias].apply(
-                        lambda x: (~x.astype(str).str.strip().str.lower().isin(forbidden) & (x.astype(str).str.strip().str.lower() != 'nan')).any()
-                    )
+                    if not rule_mask.any():
+                        continue
                     
-                    # Строки с ИНН, у которых есть незапрещенные значения, не удаляем
-                    keep_by_inn = cleaned["client_id"].map(grouped_by_inn).fillna(False)
-                    rows_to_remove = rows_to_remove & ~keep_by_inn
-                
-                # ОПТИМИЗАЦИЯ: Векторизация проверки по ТН
-                if rule.check_by_tn:
-                    tab_col = None
-                    if "tab_number" in cleaned.columns:
-                        tab_col = "tab_number"
-                    elif "manager_id" in cleaned.columns:
-                        tab_col = "manager_id"
+                    rows_to_remove = rule_mask.copy()
                     
-                    if tab_col:
-                        # Группируем по ТН и проверяем наличие незапрещенных значений
-                        grouped_by_tn = cleaned.groupby(tab_col)[rule.alias].apply(
-                            lambda x: (~x.astype(str).str.strip().str.lower().isin(forbidden) & (x.astype(str).str.strip().str.lower() != 'nan')).any()
+                    # ОПТИМИЗАЦИЯ: Векторизация проверки по ИНН
+                    if rule.check_by_inn and "client_id" in cleaned.columns:
+                        grouped_by_inn = cleaned.groupby("client_id")[column].apply(
+                            lambda x: (~x.astype(str).str.strip().str.lower().isin(rule_forbidden) & (x.astype(str).str.strip().str.lower() != 'nan')).any()
+                        )
+                        keep_by_inn = cleaned["client_id"].map(grouped_by_inn).fillna(False)
+                        rows_to_remove = rows_to_remove & ~keep_by_inn
+                    
+                    # ОПТИМИЗАЦИЯ: Векторизация проверки по ТН
+                    if rule.check_by_tn:
+                        tab_col = None
+                        if "tab_number" in cleaned.columns:
+                            tab_col = "tab_number"
+                        elif "manager_id" in cleaned.columns:
+                            tab_col = "manager_id"
+                        
+                        if tab_col:
+                            grouped_by_tn = cleaned.groupby(tab_col)[column].apply(
+                                lambda x: (~x.astype(str).str.strip().str.lower().isin(rule_forbidden) & (x.astype(str).str.strip().str.lower() != 'nan')).any()
+                            )
+                            keep_by_tn = cleaned[tab_col].map(grouped_by_tn).fillna(False)
+                            rows_to_remove = rows_to_remove & ~keep_by_tn
+                    
+                    before = len(cleaned)
+                    cleaned = cleaned[~rows_to_remove]
+                    dropped_count = before - len(cleaned)
+                    
+                    if dropped_count > 0:
+                        self.logger.debug(
+                            f"Колонка {column}: удалено {dropped_count} строк "
+                            f"(условно: check_by_inn={rule.check_by_inn}, check_by_tn={rule.check_by_tn})",
+                            "FileProcessor", "_apply_drop_rules"
                         )
                         
-                        # Строки с ТН, у которых есть незапрещенные значения, не удаляем
-                        keep_by_tn = cleaned[tab_col].map(grouped_by_tn).fillna(False)
-                        rows_to_remove = rows_to_remove & ~keep_by_tn
-                
-                before = len(cleaned)
-                cleaned = cleaned[~rows_to_remove]
-                dropped_count = before - len(cleaned)
-                self.logger.debug(
-                    f"Колонка {rule.alias}: удалено {dropped_count} строк "
-                    f"(условно: remove_unconditionally={rule.remove_unconditionally}, "
-                    f"check_by_inn={rule.check_by_inn}, check_by_tn={rule.check_by_tn})",
-                    "FileProcessor", "_apply_drop_rules"
-                )
-                
-                # Собираем статистику
-                if ENABLE_STATISTICS and group_name and file_name:
-                    rule_key = f"{rule.alias}: {', '.join(map(str, rule.values))} [условно: check_by_inn={rule.check_by_inn}, check_by_tn={rule.check_by_tn}]"
-                    if group_name not in self.statistics["files"]:
-                        self.statistics["files"][group_name] = {}
-                    if file_name not in self.statistics["files"][group_name]:
-                        self.statistics["files"][group_name][file_name] = {"dropped_by_rule": {}, "kept_by_rule": {}}
-                    if "dropped_by_rule" not in self.statistics["files"][group_name][file_name]:
-                        self.statistics["files"][group_name][file_name]["dropped_by_rule"] = {}
-                    if rule_key not in self.statistics["files"][group_name][file_name]["dropped_by_rule"]:
-                        self.statistics["files"][group_name][file_name]["dropped_by_rule"][rule_key] = 0
-                    self.statistics["files"][group_name][file_name]["dropped_by_rule"][rule_key] += dropped_count
+                        # Собираем статистику
+                        if ENABLE_STATISTICS and group_name and file_name:
+                            rule_key = f"{rule.alias}: {', '.join(map(str, rule.values))} [условно: check_by_inn={rule.check_by_inn}, check_by_tn={rule.check_by_tn}]"
+                            if group_name not in self.statistics["files"]:
+                                self.statistics["files"][group_name] = {}
+                            if file_name not in self.statistics["files"][group_name]:
+                                self.statistics["files"][group_name][file_name] = {"dropped_by_rule": {}, "kept_by_rule": {}}
+                            if "dropped_by_rule" not in self.statistics["files"][group_name][file_name]:
+                                self.statistics["files"][group_name][file_name]["dropped_by_rule"] = {}
+                            if rule_key not in self.statistics["files"][group_name][file_name]["dropped_by_rule"]:
+                                self.statistics["files"][group_name][file_name]["dropped_by_rule"][rule_key] = 0
+                            self.statistics["files"][group_name][file_name]["dropped_by_rule"][rule_key] += dropped_count
         
         return cleaned
     
