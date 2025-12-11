@@ -53,7 +53,7 @@ ENABLE_STATISTICS = True  # True - собирать статистику и со
 
 # Параметры оптимизации производительности
 ENABLE_PARALLEL_LOADING = True  # True - параллельная загрузка файлов, False - последовательная
-MAX_WORKERS = 4  # Количество потоков для параллельной загрузки (рекомендуется 2-4)
+MAX_WORKERS = 8  # Количество потоков для параллельной загрузки (рекомендуется 8 по числу виртуальных ядер)
 ENABLE_CHUNKING = False  # True - использовать chunking для больших файлов, False - загружать целиком (chunking медленный, отключен)
 CHUNK_SIZE = 50000  # Размер chunk для чтения больших файлов (строк)
 CHUNKING_THRESHOLD_MB = 200  # Порог размера файла для chunking (МБ) - если файл больше, используем chunking
@@ -115,7 +115,7 @@ TB_MAPPINGS: Dict[str, TBMapping] = {
     "PVB": TBMapping(
         short_name_en="PVB",
         short_name="ПВБ",
-        aliases=["ПВБ", "Поволжский банк", "PVB"]
+        aliases=["ПВБ", "Поволжский банк", "PVB", "ПБ"]
     ),
     "SZB": TBMapping(
         short_name_en="SZB",
@@ -1220,111 +1220,134 @@ class FileProcessor:
         
         Файлы загружаются с учетом конфигурации для каждой группы.
         Используются только файлы из списка expected_files.
+        
+        ОПТИМИЗАЦИЯ: Все группы (OD, RA, PS) загружаются параллельно.
         """
         self.logger.info("Начало загрузки файлов", "FileProcessor", "load_all_files")
+        
+        # ОПТИМИЗАЦИЯ: Параллельная загрузка всех групп
+        # Загружаем все группы параллельно: OD, RA, PS одновременно
+        self.logger.debug(f"Параллельная загрузка всех групп: {', '.join(self.groups)} (max_workers={MAX_WORKERS})", "FileProcessor", "load_all_files")
         
         # Для сводной статистики
         total_rows = 0
         all_client_ids = set()
         all_tab_numbers = set()
         
-        for group in self.groups:
-            group_path = self.input_dir / group
-            if not group_path.exists():
-                self.logger.warning(f"Каталог {group_path} не найден, пропускаем", "FileProcessor", "load_all_files")
-                continue
+        # Инициализируем словарь для обработанных файлов
+        self.processed_files = {}
+        
+        # Загружаем все группы параллельно
+        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+            # Создаем задачи для загрузки всех групп
+            future_to_group = {
+                executor.submit(self._load_group_files, group): group
+                for group in self.groups
+            }
             
-            self.logger.info(f"Обработка группы {group}", "FileProcessor", "load_all_files")
-            self.processed_files[group] = {}
-            
-            # Получаем конфигурацию группы
-            group_config = config_manager.get_group_config(group)
-            items = group_config.items
-            defaults = group_config.defaults
-            
-            if not items:
-                self.logger.warning(f"Список файлов (items) пуст для группы {group}", "FileProcessor", "load_all_files")
-                continue
-            
-            self.logger.debug(f"Ожидается {len(items)} файлов в группе {group}", "FileProcessor", "load_all_files")
-            
-            # ОПТИМИЗАЦИЯ: Параллельная загрузка файлов
-            # Подготавливаем список файлов для загрузки
-            files_to_load = []
-            for item in items:
-                if not item.file_name or item.file_name.strip() == "":
-                    continue
-                file_path = group_path / item.file_name
-                if file_path.exists():
-                    files_to_load.append((file_path, item, group, defaults))
-            
-            if not files_to_load:
-                continue
-            
-            # Выбираем метод загрузки: параллельный или последовательный
-            if ENABLE_PARALLEL_LOADING and len(files_to_load) > 1:
-                self.logger.debug(f"Параллельная загрузка {len(files_to_load)} файлов группы {group} (max_workers={MAX_WORKERS})", "FileProcessor", "load_all_files")
-                
-                # Загружаем файлы параллельно
-                with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-                    # Создаем задачи для загрузки
-                    future_to_file = {
-                        executor.submit(self._load_file, file_path, group): (file_path, item, defaults)
-                        for file_path, item, group, defaults in files_to_load
-                    }
+            # Обрабатываем результаты по мере завершения
+            for future in as_completed(future_to_group):
+                group = future_to_group[future]
+                try:
+                    result = future.result()
+                    group_name = result['group']
+                    group_files = result['files']
+                    group_stats = result['stats']
                     
-                    # Обрабатываем результаты по мере завершения
-                    for future in as_completed(future_to_file):
-                        file_path, item, defaults = future_to_file[future]
-                        try:
-                            df = future.result()
-                            if df is not None and not df.empty:
-                                self.processed_files[group][file_path.name] = df
-                                
-                                # Статистика по файлу
-                                rows_count = len(df)
-                                total_rows += rows_count
-                                
-                                tab_number_col = defaults.tab_number_column
-                                client_id_col = "client_id"
-                                
-                                unique_clients = 0
-                                unique_tabs = 0
-                                
-                                if client_id_col in df.columns:
-                                    unique_clients = df[client_id_col].nunique()
-                                    if len(all_client_ids) < 10000:
-                                        valid_client_ids = df[client_id_col].dropna().astype(str).str.strip()
-                                        valid_client_ids = valid_client_ids[(valid_client_ids != 'nan') & (valid_client_ids != '')]
-                                        all_client_ids.update(valid_client_ids.unique())
-                                
-                                if tab_number_col in df.columns:
-                                    unique_tabs = df[tab_number_col].nunique()
-                                    if len(all_tab_numbers) < 10000:
-                                        valid_tabs = df[tab_number_col].dropna().astype(str).str.strip()
-                                        valid_tabs = valid_tabs[(valid_tabs != 'nan') & (valid_tabs != '')]
-                                        all_tab_numbers.update(valid_tabs.unique())
-                                
-                                # Логируем статистику по файлу (INFO)
-                                stats_parts = [f"{rows_count} строк"]
-                                if unique_clients > 0:
-                                    stats_parts.append(f"{unique_clients} уникальных клиентов (ИНН)")
-                                if unique_tabs > 0:
-                                    stats_parts.append(f"{unique_tabs} уникальных табельных номеров")
-                                
-                                stats_message = f"Загружен файл {file_path.name} ({item.label}): {', '.join(stats_parts)}"
-                                self.logger.info(stats_message, "FileProcessor", "load_all_files")
-                            else:
-                                self.logger.warning(f"Файл {file_path.name} ({item.label}) загружен, но пуст", "FileProcessor", "load_all_files")
-                        except Exception as e:
-                            self.logger.error(f"Ошибка при загрузке файла {file_path.name}: {str(e)}", "FileProcessor", "load_all_files")
-            else:
-                # Последовательная загрузка (старый метод)
-                for file_path, item, group, defaults in files_to_load:
+                    # Сохраняем загруженные файлы
+                    self.processed_files[group_name] = group_files
+                    
+                    # Собираем статистику
+                    total_rows += group_stats['rows']
+                    all_client_ids.update(group_stats['clients'])
+                    all_tab_numbers.update(group_stats['tabs'])
+                    
+                except Exception as e:
+                    self.logger.error(f"Ошибка при загрузке группы {group}: {str(e)}", "FileProcessor", "load_all_files")
+        
+        # Сводная статистика (INFO)
+        stats_parts = [f"{total_rows} строк"]
+        if len(all_client_ids) > 0:
+            stats_parts.append(f"{len(all_client_ids)} уникальных клиентов (ИНН)")
+        if len(all_tab_numbers) > 0:
+            stats_parts.append(f"{len(all_tab_numbers)} уникальных табельных номеров")
+        
+        # Сохраняем статистику по клиентам
+        if ENABLE_STATISTICS:
+            self.statistics["summary"]["total_clients"] = len(all_client_ids)
+        
+        self.logger.info(f"Загрузка завершена. Обработано групп: {len(self.processed_files)}. Итого: {', '.join(stats_parts)}", "FileProcessor", "load_all_files")
+    
+    def _load_group_files(self, group: str) -> Dict[str, Any]:
+        """
+        Загружает все файлы одной группы.
+        
+        Args:
+            group: Название группы (OD, RA, PS)
+        
+        Returns:
+            Словарь с результатами загрузки: {
+                'group': group,
+                'files': {file_name: df},
+                'stats': {'rows': int, 'clients': set, 'tabs': set}
+            }
+        """
+        group_path = self.input_dir / group
+        if not group_path.exists():
+            self.logger.warning(f"Каталог {group_path} не найден, пропускаем", "FileProcessor", "_load_group_files")
+            return {'group': group, 'files': {}, 'stats': {'rows': 0, 'clients': set(), 'tabs': set()}}
+        
+        self.logger.info(f"Обработка группы {group}", "FileProcessor", "_load_group_files")
+        group_files = {}
+        
+        # Получаем конфигурацию группы
+        group_config = config_manager.get_group_config(group)
+        items = group_config.items
+        defaults = group_config.defaults
+        
+        if not items:
+            self.logger.warning(f"Список файлов (items) пуст для группы {group}", "FileProcessor", "_load_group_files")
+            return {'group': group, 'files': {}, 'stats': {'rows': 0, 'clients': set(), 'tabs': set()}}
+        
+        self.logger.debug(f"Ожидается {len(items)} файлов в группе {group}", "FileProcessor", "_load_group_files")
+        
+        # ОПТИМИЗАЦИЯ: Параллельная загрузка файлов
+        # Подготавливаем список файлов для загрузки
+        files_to_load = []
+        for item in items:
+            if not item.file_name or item.file_name.strip() == "":
+                continue
+            file_path = group_path / item.file_name
+            if file_path.exists():
+                files_to_load.append((file_path, item, group, defaults))
+        
+        if not files_to_load:
+            return {'group': group, 'files': {}, 'stats': {'rows': 0, 'clients': set(), 'tabs': set()}}
+        
+        # Статистика по группе
+        total_rows = 0
+        all_client_ids = set()
+        all_tab_numbers = set()
+        
+        # Выбираем метод загрузки: параллельный или последовательный
+        if ENABLE_PARALLEL_LOADING and len(files_to_load) > 1:
+            self.logger.debug(f"Параллельная загрузка {len(files_to_load)} файлов группы {group} (max_workers={MAX_WORKERS})", "FileProcessor", "_load_group_files")
+            
+            # Загружаем файлы параллельно
+            with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+                # Создаем задачи для загрузки
+                future_to_file = {
+                    executor.submit(self._load_file, file_path, group): (file_path, item, defaults)
+                    for file_path, item, group, defaults in files_to_load
+                }
+                
+                # Обрабатываем результаты по мере завершения
+                for future in as_completed(future_to_file):
+                    file_path, item, defaults = future_to_file[future]
                     try:
-                        df = self._load_file(file_path, group)
+                        df = future.result()
                         if df is not None and not df.empty:
-                            self.processed_files[group][file_path.name] = df
+                            group_files[file_path.name] = df
                             
                             # Статистика по файлу
                             rows_count = len(df)
@@ -1358,24 +1381,62 @@ class FileProcessor:
                                 stats_parts.append(f"{unique_tabs} уникальных табельных номеров")
                             
                             stats_message = f"Загружен файл {file_path.name} ({item.label}): {', '.join(stats_parts)}"
-                            self.logger.info(stats_message, "FileProcessor", "load_all_files")
+                            self.logger.info(stats_message, "FileProcessor", "_load_group_files")
                         else:
-                            self.logger.warning(f"Файл {file_path.name} ({item.label}) загружен, но пуст", "FileProcessor", "load_all_files")
+                            self.logger.warning(f"Файл {file_path.name} ({item.label}) загружен, но пуст", "FileProcessor", "_load_group_files")
                     except Exception as e:
-                        self.logger.error(f"Ошибка при загрузке файла {file_path.name} ({item.label}): {str(e)}", "FileProcessor", "load_all_files")
+                        self.logger.error(f"Ошибка при загрузке файла {file_path.name}: {str(e)}", "FileProcessor", "_load_group_files")
+        else:
+            # Последовательная загрузка (старый метод)
+            for file_path, item, group, defaults in files_to_load:
+                try:
+                    df = self._load_file(file_path, group)
+                    if df is not None and not df.empty:
+                        group_files[file_path.name] = df
+                        
+                        # Статистика по файлу
+                        rows_count = len(df)
+                        total_rows += rows_count
+                        
+                        tab_number_col = defaults.tab_number_column
+                        client_id_col = "client_id"
+                        
+                        unique_clients = 0
+                        unique_tabs = 0
+                        
+                        if client_id_col in df.columns:
+                            unique_clients = df[client_id_col].nunique()
+                            if len(all_client_ids) < 10000:
+                                valid_client_ids = df[client_id_col].dropna().astype(str).str.strip()
+                                valid_client_ids = valid_client_ids[(valid_client_ids != 'nan') & (valid_client_ids != '')]
+                                all_client_ids.update(valid_client_ids.unique())
+                        
+                        if tab_number_col in df.columns:
+                            unique_tabs = df[tab_number_col].nunique()
+                            if len(all_tab_numbers) < 10000:
+                                valid_tabs = df[tab_number_col].dropna().astype(str).str.strip()
+                                valid_tabs = valid_tabs[(valid_tabs != 'nan') & (valid_tabs != '')]
+                                all_tab_numbers.update(valid_tabs.unique())
+                        
+                        # Логируем статистику по файлу (INFO)
+                        stats_parts = [f"{rows_count} строк"]
+                        if unique_clients > 0:
+                            stats_parts.append(f"{unique_clients} уникальных клиентов (ИНН)")
+                        if unique_tabs > 0:
+                            stats_parts.append(f"{unique_tabs} уникальных табельных номеров")
+                        
+                        stats_message = f"Загружен файл {file_path.name} ({item.label}): {', '.join(stats_parts)}"
+                        self.logger.info(stats_message, "FileProcessor", "_load_group_files")
+                    else:
+                        self.logger.warning(f"Файл {file_path.name} ({item.label}) загружен, но пуст", "FileProcessor", "_load_group_files")
+                except Exception as e:
+                    self.logger.error(f"Ошибка при загрузке файла {file_path.name} ({item.label}): {str(e)}", "FileProcessor", "_load_group_files")
         
-        # Сводная статистика (INFO)
-        stats_parts = [f"{total_rows} строк"]
-        if len(all_client_ids) > 0:
-            stats_parts.append(f"{len(all_client_ids)} уникальных клиентов (ИНН)")
-        if len(all_tab_numbers) > 0:
-            stats_parts.append(f"{len(all_tab_numbers)} уникальных табельных номеров")
-        
-        # Сохраняем статистику по клиентам
-        if ENABLE_STATISTICS:
-            self.statistics["summary"]["total_clients"] = len(all_client_ids)
-        
-        self.logger.info(f"Загрузка завершена. Обработано групп: {len(self.processed_files)}. Итого: {', '.join(stats_parts)}", "FileProcessor", "load_all_files")
+        return {
+            'group': group,
+            'files': group_files,
+            'stats': {'rows': total_rows, 'clients': all_client_ids, 'tabs': all_tab_numbers}
+        }
     
     def _normalize_tab_number(self, value: Any, length: int, fill_char: str) -> str:
         """
@@ -2326,6 +2387,68 @@ class FileProcessor:
         self.logger.debug(f"Распределение табельных номеров по группам и месяцам: {group_stats}", "FileProcessor", "collect_unique_tab_numbers")
         self.logger.info(f"Собрано {len(self.unique_tab_numbers)} уникальных табельных номеров", "FileProcessor", "collect_unique_tab_numbers")
     
+    def _process_file_for_raw(self, group: str, file_name: str, df: pd.DataFrame, defaults, month: int) -> Optional[pd.DataFrame]:
+        """
+        Обрабатывает один файл для листа RAW.
+        
+        Args:
+            group: Название группы (OD, RA, PS)
+            file_name: Имя файла
+            df: DataFrame с данными файла
+            defaults: Конфигурация по умолчанию для группы
+            month: Номер месяца
+        
+        Returns:
+            DataFrame с обработанными данными или None в случае ошибки
+        """
+        tab_col = defaults.tab_number_column
+        tb_col = defaults.tb_column
+        gosb_col = defaults.gosb_column
+        fio_col = defaults.fio_column
+        indicator_col = defaults.indicator_column
+        
+        # Проверяем наличие необходимых колонок
+        required_cols = [tab_col, tb_col, gosb_col, fio_col, indicator_col]
+        missing_cols = [col for col in required_cols if col not in df.columns]
+        if missing_cols:
+            self.logger.warning(f"В файле {file_name} отсутствуют колонки: {missing_cols}", "FileProcessor", "_process_file_for_raw")
+            return None
+        
+        # Группируем по уникальным комбинациям ТН+ФИО+ТБ+ГОСБ+ИНН и суммируем показатель
+        grouped = df.groupby([tab_col, fio_col, tb_col, gosb_col, "client_id"], as_index=False)[indicator_col].sum()
+        
+        # ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ: Логируем данные для указанного табельного в RAW
+        if DEBUG_TAB_NUMBER and tab_col in grouped.columns:
+            debug_rows = grouped[grouped[tab_col].astype(str).str.strip().str.lstrip('0') == str(DEBUG_TAB_NUMBER).strip().lstrip('0')]
+            if len(debug_rows) > 0:
+                for _, row in debug_rows.iterrows():
+                    self.logger.debug_tab(
+                        f"Подготовка RAW данных для файла {file_name} (группа {group}, месяц M-{month}): "
+                        f"ТБ='{row.get(tb_col, '')}', ГОСБ='{row.get(gosb_col, '')}', ФИО='{row.get(fio_col, '')}', "
+                        f"ИНН={row.get('client_id', '')}, Показатель={row.get(indicator_col, 0):.2f}",
+                        tab_number=row.get(tab_col),
+                        class_name="FileProcessor",
+                        func_name="_process_file_for_raw"
+                    )
+        
+        # Переименовываем колонки для единообразия
+        grouped = grouped.rename(columns={
+            tab_col: "Табельный",
+            fio_col: "ФИО",
+            tb_col: "ТБ",
+            gosb_col: "ГОСБ",
+            "client_id": "ИНН",
+            indicator_col: "Показатель"
+        })
+        
+        # Добавляем информацию о группе и месяце для создания колонок
+        grouped["Группа"] = group
+        grouped["Месяц"] = month
+        grouped["Файл"] = file_name
+        grouped["Файл_колонка"] = f"{group} (M-{month})"
+        
+        return grouped
+    
     def prepare_raw_data(self) -> pd.DataFrame:
         """
         Подготавливает сырые данные для листа RAW.
@@ -2355,21 +2478,15 @@ class FileProcessor:
             month_cache[file_name] = 0
             return 0
         
-        # Обрабатываем все файлы в правильном порядке: OD, RA, PS
-        group_order = {"OD": 1, "RA": 2, "PS": 3}
-        groups_sorted = sorted(self.groups, key=lambda g: group_order.get(g, 999))
-        
-        for group in groups_sorted:
+        # ОПТИМИЗАЦИЯ: Параллельная обработка всех файлов (независимо от группы)
+        # Подготавливаем список всех файлов для обработки
+        files_to_process = []
+        for group in self.groups:
             if group not in self.processed_files:
                 continue
             
             group_config = config_manager.get_group_config(group)
             defaults = group_config.defaults
-            tab_col = defaults.tab_number_column
-            tb_col = defaults.tb_column
-            gosb_col = defaults.gosb_column
-            fio_col = defaults.fio_column
-            indicator_col = defaults.indicator_column
             
             # Сортируем файлы по номеру месяца
             files_sorted = sorted(
@@ -2379,48 +2496,25 @@ class FileProcessor:
             
             for file_name, df in files_sorted:
                 month = extract_month_number(file_name)
-                
-                # Проверяем наличие необходимых колонок
-                required_cols = [tab_col, tb_col, gosb_col, fio_col, indicator_col]
-                missing_cols = [col for col in required_cols if col not in df.columns]
-                if missing_cols:
-                    self.logger.warning(f"В файле {file_name} отсутствуют колонки: {missing_cols}", "FileProcessor", "prepare_raw_data")
-                    continue
-                
-                # Группируем по уникальным комбинациям ТН+ФИО+ТБ+ГОСБ+ИНН и суммируем показатель
-                grouped = df.groupby([tab_col, fio_col, tb_col, gosb_col, "client_id"], as_index=False)[indicator_col].sum()
-                
-                # ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ: Логируем данные для указанного табельного в RAW
-                if DEBUG_TAB_NUMBER and tab_col in grouped.columns:
-                    debug_rows = grouped[grouped[tab_col].astype(str).str.strip().str.lstrip('0') == str(DEBUG_TAB_NUMBER).strip().lstrip('0')]
-                    if len(debug_rows) > 0:
-                        for _, row in debug_rows.iterrows():
-                            self.logger.debug_tab(
-                                f"Подготовка RAW данных для файла {file_name} (группа {group}, месяц M-{month}): "
-                                f"ТБ='{row.get(tb_col, '')}', ГОСБ='{row.get(gosb_col, '')}', ФИО='{row.get(fio_col, '')}', "
-                                f"ИНН={row.get('client_id', '')}, Показатель={row.get(indicator_col, 0):.2f}",
-                                tab_number=row.get(tab_col),
-                                class_name="FileProcessor",
-                                func_name="prepare_raw_data"
-                            )
-                
-                # Переименовываем колонки для единообразия
-                grouped = grouped.rename(columns={
-                    tab_col: "Табельный",
-                    fio_col: "ФИО",
-                    tb_col: "ТБ",
-                    gosb_col: "ГОСБ",
-                    "client_id": "ИНН",
-                    indicator_col: "Показатель"
-                })
-                
-                # Добавляем информацию о группе и месяце для создания колонок
-                grouped["Группа"] = group
-                grouped["Месяц"] = month
-                grouped["Файл"] = file_name
-                grouped["Файл_колонка"] = f"{group} (M-{month})"
-                
-                raw_data_list.append(grouped)
+                files_to_process.append((group, file_name, df, defaults, month))
+        
+        # ОПТИМИЗАЦИЯ: Обрабатываем все файлы параллельно
+        self.logger.debug(f"Параллельная обработка {len(files_to_process)} файлов для листа RAW (max_workers={MAX_WORKERS})", "FileProcessor", "prepare_raw_data")
+        
+        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+            futures = []
+            for group, file_name, df, defaults, month in files_to_process:
+                future = executor.submit(self._process_file_for_raw, group, file_name, df, defaults, month)
+                futures.append(future)
+            
+            # Собираем результаты по мере завершения
+            for future in as_completed(futures):
+                try:
+                    grouped = future.result()
+                    if grouped is not None:
+                        raw_data_list.append(grouped)
+                except Exception as e:
+                    self.logger.error(f"Ошибка при обработке файла для RAW: {str(e)}", "FileProcessor", "prepare_raw_data")
         
         if not raw_data_list:
             self.logger.warning("Нет данных для листа RAW", "FileProcessor", "prepare_raw_data")
@@ -2520,6 +2614,36 @@ class FileProcessor:
         
         return raw_pivot_df
     
+    def _create_file_index(self, group: str, file_name: str, full_name: str, df: pd.DataFrame, defaults) -> Dict[str, float]:
+        """
+        Создает индекс (словарь) для одного файла: {tab_number: sum}.
+        
+        Args:
+            group: Название группы (OD, RA, PS)
+            file_name: Имя файла
+            full_name: Полное имя файла (group_file_name)
+            df: DataFrame с данными файла
+            defaults: Конфигурация по умолчанию для группы
+        
+        Returns:
+            Словарь {tab_number: sum} с суммами показателей по табельным номерам
+        """
+        tab_col = defaults.tab_number_column
+        indicator_col = defaults.indicator_column
+        
+        if tab_col not in df.columns or indicator_col not in df.columns:
+            return {}
+        
+        # ОПТИМИЗАЦИЯ: Нормализуем табельные номера один раз
+        df_normalized = df.copy()
+        df_normalized[tab_col] = df_normalized[tab_col].astype(str).str.strip()
+        df_normalized = df_normalized[df_normalized[tab_col] != 'nan']
+        df_normalized = df_normalized[df_normalized[tab_col] != '']
+        
+        # ОПТИМИЗАЦИЯ: Группируем по табельным номерам и суммируем показатели один раз для всего файла
+        grouped = df_normalized.groupby(tab_col)[indicator_col].sum()
+        return grouped.to_dict()
+    
     def prepare_summary_data(self) -> pd.DataFrame:
         """
         Подготавливает сводные данные для итогового файла.
@@ -2572,12 +2696,14 @@ class FileProcessor:
         
         self.logger.debug(f"Лист 'Данные': Всего колонок для обработки: {len(all_files)} (базовые: Табельный, ТБ, ГОСБ, ФИО + данные по группам и месяцам)", "FileProcessor", "prepare_summary_data")
         
-        # ОПТИМИЗАЦИЯ: Предварительно создаем индексы для всех файлов
+        # ОПТИМИЗАЦИЯ: Предварительно создаем индексы для всех файлов параллельно
         # Кэшируем конфигурации групп
-        self.logger.debug("Лист 'Данные': Создание индексов по табельным номерам для всех файлов", "FileProcessor", "prepare_summary_data")
+        self.logger.debug("Лист 'Данные': Параллельное создание индексов по табельным номерам для всех файлов", "FileProcessor", "prepare_summary_data")
         file_indexes = {}  # {full_name: {tab_number: sum}}
         group_configs_cache = {}  # Кэш конфигураций
         
+        # Подготавливаем список файлов для обработки
+        files_to_index = []
         for group, file_name, full_name in all_files:
             if group in self.processed_files and file_name in self.processed_files[group]:
                 df = self.processed_files[group][file_name]
@@ -2587,22 +2713,25 @@ class FileProcessor:
                     group_configs_cache[group] = config_manager.get_group_config(group)
                 
                 defaults = group_configs_cache[group].defaults
-                tab_col = defaults.tab_number_column
-                indicator_col = defaults.indicator_column
+                files_to_index.append((group, file_name, full_name, df, defaults))
+        
+        # ОПТИМИЗАЦИЯ: Создаем индексы параллельно для всех файлов
+        if files_to_index:
+            with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+                future_to_file = {
+                    executor.submit(self._create_file_index, group, file_name, full_name, df, defaults): (group, file_name, full_name)
+                    for group, file_name, full_name, df, defaults in files_to_index
+                }
                 
-                if tab_col not in df.columns or indicator_col not in df.columns:
-                    file_indexes[full_name] = {}
-                    continue
-                
-                # ОПТИМИЗАЦИЯ: Нормализуем табельные номера один раз
-                df_normalized = df.copy()
-                df_normalized[tab_col] = df_normalized[tab_col].astype(str).str.strip()
-                df_normalized = df_normalized[df_normalized[tab_col] != 'nan']
-                df_normalized = df_normalized[df_normalized[tab_col] != '']
-                
-                # ОПТИМИЗАЦИЯ: Группируем по табельным номерам и суммируем показатели один раз для всего файла
-                grouped = df_normalized.groupby(tab_col)[indicator_col].sum()
-                file_indexes[full_name] = grouped.to_dict()
+                # Обрабатываем результаты по мере завершения
+                for future in as_completed(future_to_file):
+                    group, file_name, full_name = future_to_file[future]
+                    try:
+                        file_index = future.result()
+                        file_indexes[full_name] = file_index
+                    except Exception as e:
+                        self.logger.error(f"Ошибка при создании индекса для файла {full_name}: {str(e)}", "FileProcessor", "prepare_summary_data")
+                        file_indexes[full_name] = {}
         
         self.logger.debug(f"Лист 'Данные': Индексы созданы для {len(file_indexes)} файлов", "FileProcessor", "prepare_summary_data")
         
@@ -3142,6 +3271,119 @@ class FileProcessor:
 
         return calculated_df
     
+    def _normalize_group(self, group_name: str, direction: str, month_data: Dict[int, Dict[str, str]], calculated_df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        Нормализует показатели для одной группы (OD, RA или PS).
+        
+        Args:
+            group_name: Название группы (OD, RA, PS)
+            direction: Направление нормализации ("MAX" или "MIN")
+            month_data: Словарь {month: {group: col_name}} с колонками по месяцам и группам
+            calculated_df: DataFrame с расчетными данными
+        
+        Returns:
+            Словарь {norm_col_name: normalized_series} с нормализованными значениями
+        """
+        # Собираем все колонки для данного показателя
+        group_cols = {}
+        for month in sorted(month_data.keys()):
+            col = month_data[month].get(group_name)
+            if col and col in calculated_df.columns:
+                group_cols[month] = col
+        
+        if not group_cols:
+            return {}
+        
+        normalized_cols = {}
+        
+        # ОПТИМИЗАЦИЯ: Создаем временный DataFrame с данными показателя
+        group_data = pd.DataFrame(index=calculated_df.index)
+        for month, col in group_cols.items():
+            # Используем fillna(0) только для расчета, но сохраняем NaN для проверки
+            group_data[f"M-{month}"] = calculated_df[col]
+        
+        # Нормализуем для каждого КМ (горизонтально по месяцам)
+        # Для каждого КМ находим min и max по месяцам (игнорируя NaN)
+        group_min = group_data.min(axis=1, skipna=True)
+        group_max = group_data.max(axis=1, skipna=True)
+        group_range = group_max - group_min
+        
+        # ОПТИМИЗАЦИЯ: Обрабатываем деление на ноль и одинаковые значения
+        # Проверяем количество месяцев с данными (не NaN и не 0) для каждого КМ
+        non_zero_count = (group_data.notna() & (group_data != 0)).sum(axis=1)
+        mask_zero_range = (group_range < 1e-10) | group_range.isna()  # Все значения одинаковы или разница очень мала или все NaN
+        mask_single_month = non_zero_count <= 1  # Только один месяц с данными или все нули/NaN
+        
+        # Защита от деления на ноль: заменяем нули в group_range на 1
+        group_range_safe = group_range.where(~mask_zero_range, 1.0)
+        
+        # Нормализуем
+        for month in sorted(group_cols.keys()):
+            norm_col_name = f"{group_name}_norm (M-{month})"
+            col_data = group_data[f"M-{month}"]
+            
+            # ОПТИМИЗАЦИЯ: Векторизованная нормализация с обработкой edge cases
+            if direction == "MAX":
+                # Больше = лучше: нормализуем к [0, 1]
+                normalized = (col_data - group_min) / group_range_safe
+            else:  # direction == "MIN"
+                # Меньше = лучше: инвертируем нормализацию
+                normalized = (group_max - col_data) / group_range_safe
+            
+            # Обрабатываем edge cases (векторизованно)
+            # ВАЖНО: Сначала обрабатываем случай "только один месяц с данными", 
+            # затем случай "все значения одинаковы"
+            
+            # Случай 1: Только один месяц с данными (не нулями)
+            # Месяц с данными получает 1.0, остальные (нули) получают 0.0
+            if direction == "MAX":
+                # Для MAX: месяц с максимальным значением (ненулевым) = 1.0, остальные = 0.0
+                # Проверяем, является ли текущий месяц максимальным и ненулевым
+                is_max_and_nonzero = (col_data == group_max) & (col_data != 0) & (non_zero_count == 1)
+                # Для КМ с одним месяцем данных: сначала всем 0, затем максимуму 1.0
+                normalized = normalized.where(~mask_single_month, 0.0)  # Сначала всем 0
+                normalized = normalized.where(~is_max_and_nonzero, 1.0)  # Затем максимуму 1.0
+            else:  # direction == "MIN"
+                # Для MIN: месяц с минимальным значением (ненулевым) = 1.0, остальные = 0.0
+                # Проверяем, является ли текущий месяц минимальным ненулевым
+                is_min_and_nonzero = (col_data == group_min) & (col_data != 0) & (non_zero_count == 1)
+                # Для КМ с одним месяцем данных: сначала всем 0, затем минимуму 1.0
+                normalized = normalized.where(~mask_single_month, 0.0)  # Сначала всем 0
+                normalized = normalized.where(~is_min_and_nonzero, 1.0)  # Затем минимуму 1.0
+            
+            # Случай 2: Все значения одинаковы (включая все нули) - всем 0.5
+            # Это применяется только если НЕ случай "один месяц с данными"
+            # (mask_zero_range может быть True и для случая "один месяц", поэтому проверяем ~mask_single_month)
+            mask_all_same_not_single = mask_zero_range & ~mask_single_month
+            normalized = normalized.where(~mask_all_same_not_single, 0.5)
+            
+            # Защита от выхода за границы [0, 1] (из-за погрешности вычислений)
+            normalized = normalized.clip(0.0, 1.0)
+            
+            normalized_cols[norm_col_name] = normalized
+            
+            # ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ: Логируем нормализацию для указанного табельного
+            if DEBUG_TAB_NUMBER and "Табельный" in calculated_df.columns:
+                debug_mask = calculated_df["Табельный"].astype(str).str.strip().str.lstrip('0') == str(DEBUG_TAB_NUMBER).strip().lstrip('0')
+                if debug_mask.any():
+                    debug_idx = calculated_df[debug_mask].index[0]
+                    col = group_cols[month]
+                    original_value = calculated_df.loc[debug_idx, col] if col in calculated_df.columns else None
+                    normalized_value = normalized.loc[debug_idx] if debug_idx in normalized.index else None
+                    min_val = group_min.loc[debug_idx] if debug_idx in group_min.index else None
+                    max_val = group_max.loc[debug_idx] if debug_idx in group_max.index else None
+                    
+                    self.logger.debug_tab(
+                        f"Нормализация показателя {group_name} для месяца M-{month}: "
+                        f"исходное значение={original_value}, нормализованное={normalized_value}, "
+                        f"min={min_val}, max={max_val}, направление={direction}",
+                        tab_number=DEBUG_TAB_NUMBER,
+                        class_name="FileProcessor",
+                        func_name="_normalize_group"
+                    )
+        
+        return normalized_cols
+    
     def _normalize_indicators(self, calculated_df: pd.DataFrame, config_manager) -> pd.DataFrame:
         """
         Нормализует показатели для каждого КМ по месяцам с учетом направления (вариант 3).
@@ -3217,104 +3459,27 @@ class FileProcessor:
         ra_direction = ra_config.indicator_direction if ra_config else "MAX"
         ps_direction = ps_config.indicator_direction if ps_config else "MAX"
         
-        # ОПТИМИЗАЦИЯ: Векторизованная нормализация для каждого показателя
-        # Для каждого показателя (OD, RA, PS) нормализуем значения по месяцам для каждого КМ
-        for group_name, direction in [("OD", od_direction), ("RA", ra_direction), ("PS", ps_direction)]:
-            # Собираем все колонки для данного показателя
-            group_cols = {}
-            for month in sorted(month_data.keys()):
-                col = month_data[month].get(group_name)
-                if col and col in calculated_df.columns:
-                    group_cols[month] = col
+        # ОПТИМИЗАЦИЯ: Параллельная нормализация для всех групп (OD, RA, PS)
+        # Нормализуем все группы параллельно
+        self.logger.debug(f"Параллельная нормализация всех групп: OD, RA, PS (max_workers=3)", "FileProcessor", "_normalize_indicators")
+        
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            futures = {
+                executor.submit(self._normalize_group, group_name, direction, month_data, calculated_df): group_name
+                for group_name, direction in [("OD", od_direction), ("RA", ra_direction), ("PS", ps_direction)]
+            }
             
-            if not group_cols:
-                continue
-            
-            # ОПТИМИЗАЦИЯ: Создаем временный DataFrame с данными показателя
-            group_data = pd.DataFrame(index=calculated_df.index)
-            for month, col in group_cols.items():
-                # Используем fillna(0) только для расчета, но сохраняем NaN для проверки
-                group_data[f"M-{month}"] = calculated_df[col]
-            
-            # Нормализуем для каждого КМ (горизонтально по месяцам)
-            # Для каждого КМ находим min и max по месяцам (игнорируя NaN)
-            group_min = group_data.min(axis=1, skipna=True)
-            group_max = group_data.max(axis=1, skipna=True)
-            group_range = group_max - group_min
-            
-            # ОПТИМИЗАЦИЯ: Обрабатываем деление на ноль и одинаковые значения
-            # Проверяем количество месяцев с данными (не NaN и не 0) для каждого КМ
-            non_zero_count = (group_data.notna() & (group_data != 0)).sum(axis=1)
-            mask_zero_range = (group_range < 1e-10) | group_range.isna()  # Все значения одинаковы или разница очень мала или все NaN
-            mask_single_month = non_zero_count <= 1  # Только один месяц с данными или все нули/NaN
-            
-            # Защита от деления на ноль: заменяем нули в group_range на 1
-            group_range_safe = group_range.where(~mask_zero_range, 1.0)
-            
-            # Нормализуем
-            for month in sorted(group_cols.keys()):
-                norm_col_name = f"{group_name}_norm (M-{month})"
-                col_data = group_data[f"M-{month}"]
-                
-                # ОПТИМИЗАЦИЯ: Векторизованная нормализация с обработкой edge cases
-                if direction == "MAX":
-                    # Больше = лучше: нормализуем к [0, 1]
-                    normalized = (col_data - group_min) / group_range_safe
-                else:  # direction == "MIN"
-                    # Меньше = лучше: инвертируем нормализацию
-                    normalized = (group_max - col_data) / group_range_safe
-                
-                # Обрабатываем edge cases (векторизованно)
-                # ВАЖНО: Сначала обрабатываем случай "только один месяц с данными", 
-                # затем случай "все значения одинаковы"
-                
-                # Случай 1: Только один месяц с данными (не нулями)
-                # Месяц с данными получает 1.0, остальные (нули) получают 0.0
-                if direction == "MAX":
-                    # Для MAX: месяц с максимальным значением (ненулевым) = 1.0, остальные = 0.0
-                    # Проверяем, является ли текущий месяц максимальным и ненулевым
-                    is_max_and_nonzero = (col_data == group_max) & (col_data != 0) & (non_zero_count == 1)
-                    # Для КМ с одним месяцем данных: сначала всем 0, затем максимуму 1.0
-                    normalized = normalized.where(~mask_single_month, 0.0)  # Сначала всем 0
-                    normalized = normalized.where(~is_max_and_nonzero, 1.0)  # Затем максимуму 1.0
-                else:  # direction == "MIN"
-                    # Для MIN: месяц с минимальным значением (ненулевым) = 1.0, остальные = 0.0
-                    # Проверяем, является ли текущий месяц минимальным ненулевым
-                    is_min_and_nonzero = (col_data == group_min) & (col_data != 0) & (non_zero_count == 1)
-                    # Для КМ с одним месяцем данных: сначала всем 0, затем минимуму 1.0
-                    normalized = normalized.where(~mask_single_month, 0.0)  # Сначала всем 0
-                    normalized = normalized.where(~is_min_and_nonzero, 1.0)  # Затем минимуму 1.0
-                
-                # Случай 2: Все значения одинаковы (включая все нули) - всем 0.5
-                # Это применяется только если НЕ случай "один месяц с данными"
-                # (mask_zero_range может быть True и для случая "один месяц", поэтому проверяем ~mask_single_month)
-                mask_all_same_not_single = mask_zero_range & ~mask_single_month
-                normalized = normalized.where(~mask_all_same_not_single, 0.5)
-                
-                # Защита от выхода за границы [0, 1] (из-за погрешности вычислений)
-                normalized = normalized.clip(0.0, 1.0)
-                
-                # ВАЖНО: Убеждаемся, что индексы совпадают при присваивании
-                normalized_df.loc[normalized.index, norm_col_name] = normalized
-                
-                # ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ: Логируем нормализацию для указанного табельного
-                if DEBUG_TAB_NUMBER and "Табельный" in calculated_df.columns:
-                    debug_mask = calculated_df["Табельный"].astype(str).str.strip().str.lstrip('0') == str(DEBUG_TAB_NUMBER).strip().lstrip('0')
-                    if debug_mask.any():
-                        debug_idx = calculated_df[debug_mask].index[0]
-                        original_value = calculated_df.loc[debug_idx, col] if col in calculated_df.columns else None
-                        normalized_value = normalized.loc[debug_idx] if debug_idx in normalized.index else None
-                        min_val = group_min.loc[debug_idx] if debug_idx in group_min.index else None
-                        max_val = group_max.loc[debug_idx] if debug_idx in group_max.index else None
-                        
-                        self.logger.debug_tab(
-                            f"Нормализация показателя {group_name} для месяца M-{month}: "
-                            f"исходное значение={original_value}, нормализованное={normalized_value}, "
-                            f"min={min_val}, max={max_val}, направление={direction}",
-                            tab_number=DEBUG_TAB_NUMBER,
-                            class_name="FileProcessor",
-                            func_name="_normalize_indicators"
-                        )
+            # Обрабатываем результаты по мере завершения
+            for future in as_completed(futures):
+                group_name = futures[future]
+                try:
+                    normalized_cols = future.result()
+                    # Добавляем нормализованные колонки в normalized_df
+                    for norm_col_name, normalized in normalized_cols.items():
+                        # ВАЖНО: Убеждаемся, что индексы совпадают при присваивании
+                        normalized_df.loc[normalized.index, norm_col_name] = normalized
+                except Exception as e:
+                    self.logger.error(f"Ошибка при нормализации группы {group_name}: {str(e)}", "FileProcessor", "_normalize_indicators")
         
         # ВАЖНО: Сбрасываем индекс только в конце, после всех присваиваний
         normalized_df = normalized_df.reset_index(drop=True)
@@ -3364,6 +3529,61 @@ class FileProcessor:
                 normalized[month] = (max_val - value) / (max_val - min_val)
         
         return normalized
+    
+    def _calculate_score_for_month(self, month: int, normalized_df: pd.DataFrame, weight_od: float, weight_ra: float, weight_ps: float) -> Tuple[str, pd.Series]:
+        """
+        Рассчитывает Score для одного месяца.
+        
+        Args:
+            month: Номер месяца
+            normalized_df: DataFrame с нормализованными данными
+            weight_od: Вес для OD
+            weight_ra: Вес для RA
+            weight_ps: Вес для PS
+        
+        Returns:
+            Tuple[score_col_name, score_series] с именем колонки и значениями Score
+        """
+        score = pd.Series(0.0, index=normalized_df.index)
+        
+        # ОПТИМИЗАЦИЯ: Векторизованный расчет Score
+        od_norm_col = f"OD_norm (M-{month})"
+        ra_norm_col = f"RA_norm (M-{month})"
+        ps_norm_col = f"PS_norm (M-{month})"
+        
+        if od_norm_col in normalized_df.columns:
+            score += normalized_df[od_norm_col].fillna(0) * weight_od
+        
+        if ra_norm_col in normalized_df.columns:
+            score += normalized_df[ra_norm_col].fillna(0) * weight_ra
+        
+        if ps_norm_col in normalized_df.columns:
+            score += normalized_df[ps_norm_col].fillna(0) * weight_ps
+        
+        score_col_name = f"Score (M-{month})"
+        
+        # ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ: Логируем расчет Score для указанного табельного
+        if DEBUG_TAB_NUMBER and "Табельный" in normalized_df.columns:
+            debug_mask = normalized_df["Табельный"].astype(str).str.strip().str.lstrip('0') == str(DEBUG_TAB_NUMBER).strip().lstrip('0')
+            if debug_mask.any():
+                debug_idx = normalized_df[debug_mask].index[0]
+                od_val = normalized_df.loc[debug_idx, od_norm_col] if od_norm_col in normalized_df.columns and debug_idx in normalized_df.index else 0
+                ra_val = normalized_df.loc[debug_idx, ra_norm_col] if ra_norm_col in normalized_df.columns and debug_idx in normalized_df.index else 0
+                ps_val = normalized_df.loc[debug_idx, ps_norm_col] if ps_norm_col in normalized_df.columns and debug_idx in normalized_df.index else 0
+                score_val = score.loc[debug_idx] if debug_idx in score.index else 0
+                
+                self.logger.debug_tab(
+                    f"Расчет Score для месяца M-{month}: "
+                    f"OD_norm={od_val:.4f} × {weight_od} = {od_val * weight_od:.4f}, "
+                    f"RA_norm={ra_val:.4f} × {weight_ra} = {ra_val * weight_ra:.4f}, "
+                    f"PS_norm={ps_val:.4f} × {weight_ps} = {ps_val * weight_ps:.4f}, "
+                    f"Итого Score={score_val:.4f}",
+                    tab_number=DEBUG_TAB_NUMBER,
+                    class_name="FileProcessor",
+                    func_name="_calculate_score_for_month"
+                )
+        
+        return (score_col_name, score)
     
     def _calculate_best_month_variant3(self, calculated_df: pd.DataFrame, normalized_df: pd.DataFrame, config_manager) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """
@@ -3442,49 +3662,25 @@ class FileProcessor:
             sample_fio = final_df["ФИО"].iloc[0] if "ФИО" in final_df.columns else None
             self.logger.debug(f"final_df создан: {len(final_df)} строк. Пример: ТБ='{sample_tb}', ГОСБ='{sample_gosb}', ФИО='{sample_fio}'", "FileProcessor", "_calculate_best_month_variant3")
         
-        # ОПТИМИЗАЦИЯ: Векторизованный расчет Score для каждого месяца
+        # ОПТИМИЗАЦИЯ: Параллельный расчет Score для всех месяцев
+        self.logger.debug(f"Параллельный расчет Score для всех месяцев (max_workers={MAX_WORKERS})", "FileProcessor", "_calculate_best_month_variant3")
+        
         score_cols = {}
-        for month in sorted(month_data.keys()):
-            score = pd.Series(0.0, index=calculated_df.index)
+        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+            futures = {
+                executor.submit(self._calculate_score_for_month, month, normalized_df, weight_od, weight_ra, weight_ps): month
+                for month in sorted(month_data.keys())
+            }
             
-            # ОПТИМИЗАЦИЯ: Векторизованный расчет Score
-            od_norm_col = f"OD_norm (M-{month})"
-            ra_norm_col = f"RA_norm (M-{month})"
-            ps_norm_col = f"PS_norm (M-{month})"
-            
-            if od_norm_col in normalized_df.columns:
-                score += normalized_df[od_norm_col].fillna(0) * weight_od
-            
-            if ra_norm_col in normalized_df.columns:
-                score += normalized_df[ra_norm_col].fillna(0) * weight_ra
-            
-            if ps_norm_col in normalized_df.columns:
-                score += normalized_df[ps_norm_col].fillna(0) * weight_ps
-            
-            score_col_name = f"Score (M-{month})"
-            places_df[score_col_name] = score
-            score_cols[month] = score_col_name
-            
-            # ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ: Логируем расчет Score для указанного табельного
-            if DEBUG_TAB_NUMBER and "Табельный" in calculated_df.columns:
-                debug_mask = calculated_df["Табельный"].astype(str).str.strip().str.lstrip('0') == str(DEBUG_TAB_NUMBER).strip().lstrip('0')
-                if debug_mask.any():
-                    debug_idx = calculated_df[debug_mask].index[0]
-                    od_val = normalized_df.loc[debug_idx, od_norm_col] if od_norm_col in normalized_df.columns and debug_idx in normalized_df.index else 0
-                    ra_val = normalized_df.loc[debug_idx, ra_norm_col] if ra_norm_col in normalized_df.columns and debug_idx in normalized_df.index else 0
-                    ps_val = normalized_df.loc[debug_idx, ps_norm_col] if ps_norm_col in normalized_df.columns and debug_idx in normalized_df.index else 0
-                    score_val = score.loc[debug_idx] if debug_idx in score.index else 0
-                    
-                    self.logger.debug_tab(
-                        f"Расчет Score для месяца M-{month}: "
-                        f"OD_norm={od_val:.4f} × {weight_od} = {od_val * weight_od:.4f}, "
-                        f"RA_norm={ra_val:.4f} × {weight_ra} = {ra_val * weight_ra:.4f}, "
-                        f"PS_norm={ps_val:.4f} × {weight_ps} = {ps_val * weight_ps:.4f}, "
-                        f"Итого Score={score_val:.4f}",
-                        tab_number=DEBUG_TAB_NUMBER,
-                        class_name="FileProcessor",
-                        func_name="_calculate_best_month_variant3"
-                    )
+            # Обрабатываем результаты по мере завершения
+            for future in as_completed(futures):
+                month = futures[future]
+                try:
+                    score_col_name, score = future.result()
+                    places_df[score_col_name] = score
+                    score_cols[month] = score_col_name
+                except Exception as e:
+                    self.logger.error(f"Ошибка при расчете Score для месяца M-{month}: {str(e)}", "FileProcessor", "_calculate_best_month_variant3")
         
         # ОПТИМИЗАЦИЯ: Векторизованный расчет горизонтального ранга
         # Создаем DataFrame со всеми Score для удобства работы
