@@ -4402,10 +4402,16 @@ class ExcelFormatter:
             else:
                 # Используем pandas ExcelWriter без форматирования
                 self.logger.warning("openpyxl недоступен, создается файл без форматирования", "ExcelFormatter", "create_formatted_excel")
+                # ВАЖНО: Проверяем размер raw_df перед сохранением
+                MAX_EXCEL_ROWS = 1_048_576
+                raw_df_to_save = raw_df if len(raw_df) <= MAX_EXCEL_ROWS else raw_df.head(MAX_EXCEL_ROWS)
+                if len(raw_df) > MAX_EXCEL_ROWS:
+                    self.logger.warning(f"Лист RAW слишком большой ({len(raw_df)} строк), будет сохранена только первая часть ({MAX_EXCEL_ROWS} строк)", "ExcelFormatter", "create_formatted_excel")
                 # Пробуем использовать доступный engine
                 try:
                     with pd.ExcelWriter(output_path, engine='openpyxl') as writer:
-                        raw_df.to_excel(writer, sheet_name="RAW", index=False)
+                        if len(raw_df_to_save) > 0:
+                            raw_df_to_save.to_excel(writer, sheet_name="RAW", index=False)
                         summary_df.to_excel(writer, sheet_name="Исходник", index=False)
                         calculated_df.to_excel(writer, sheet_name="Расчет", index=False)
                         normalized_df.to_excel(writer, sheet_name="Нормализация", index=False)
@@ -4416,7 +4422,8 @@ class ExcelFormatter:
                 except Exception as e:
                     try:
                         with pd.ExcelWriter(output_path) as writer:
-                            raw_df.to_excel(writer, sheet_name="RAW", index=False)
+                            if len(raw_df_to_save) > 0:
+                                raw_df_to_save.to_excel(writer, sheet_name="RAW", index=False)
                             summary_df.to_excel(writer, sheet_name="Исходник", index=False)
                             calculated_df.to_excel(writer, sheet_name="Расчет", index=False)
                             normalized_df.to_excel(writer, sheet_name="Нормализация", index=False)
@@ -4424,10 +4431,11 @@ class ExcelFormatter:
                             final_df.to_excel(writer, sheet_name="Итог", index=False)
                             if statistics_df is not None:
                                 statistics_df.to_excel(writer, sheet_name="Статистика", index=False, header=False)
-                    except:
+                    except Exception:
                         # Если не получилось, используем любой доступный engine
                         with pd.ExcelWriter(output_path) as writer:
-                            raw_df.to_excel(writer, sheet_name="RAW", index=False)
+                            if len(raw_df_to_save) > 0:
+                                raw_df_to_save.to_excel(writer, sheet_name="RAW", index=False)
                             summary_df.to_excel(writer, sheet_name="Исходник", index=False)
                             calculated_df.to_excel(writer, sheet_name="Расчет", index=False)
                             normalized_df.to_excel(writer, sheet_name="Нормализация", index=False)
@@ -4439,10 +4447,16 @@ class ExcelFormatter:
             
         except Exception as e:
             self.logger.error(f"Ошибка при создании Excel файла {output_path}: {str(e)}", "ExcelFormatter", "create_formatted_excel")
+            # ВАЖНО: Проверяем размер raw_df перед сохранением в fallback режиме
+            MAX_EXCEL_ROWS = 1_048_576
+            raw_df_fallback = raw_df if len(raw_df) <= MAX_EXCEL_ROWS else raw_df.head(MAX_EXCEL_ROWS)
+            if len(raw_df) > MAX_EXCEL_ROWS:
+                self.logger.warning(f"Лист RAW слишком большой ({len(raw_df)} строк), будет сохранена только первая часть ({MAX_EXCEL_ROWS} строк)", "ExcelFormatter", "create_formatted_excel")
             # Пробуем создать без форматирования
             try:
                 with pd.ExcelWriter(output_path) as writer:
-                    raw_df.to_excel(writer, sheet_name="RAW", index=False)
+                    if len(raw_df_fallback) > 0:
+                        raw_df_fallback.to_excel(writer, sheet_name="RAW", index=False)
                     summary_df.to_excel(writer, sheet_name="Исходник", index=False)
                     calculated_df.to_excel(writer, sheet_name="Расчет", index=False)
                     normalized_df.to_excel(writer, sheet_name="Нормализация", index=False)
@@ -4471,10 +4485,27 @@ class ExcelFormatter:
         """
         self.logger.info("Использование openpyxl для форматирования")
         
+        # ВАЖНО: Проверяем размер raw_df перед сохранением
+        # Excel имеет ограничение: максимум 1 048 576 строк на лист
+        MAX_EXCEL_ROWS = 1_048_576
+        raw_df_to_save = raw_df
+        
+        if len(raw_df) > MAX_EXCEL_ROWS:
+            self.logger.warning(
+                f"Лист RAW слишком большой ({len(raw_df)} строк), превышает лимит Excel ({MAX_EXCEL_ROWS} строк). "
+                f"Будет сохранена только первая часть ({MAX_EXCEL_ROWS} строк).",
+                "ExcelFormatter",
+                "_create_with_openpyxl"
+            )
+            # Ограничиваем размер до максимума Excel
+            raw_df_to_save = raw_df.head(MAX_EXCEL_ROWS)
+        
         # Сначала сохраняем DataFrame в Excel через pandas
         self.logger.info("Сохранение данных в Excel...")
         with pd.ExcelWriter(output_path, engine='openpyxl') as writer:
-            raw_df.to_excel(writer, sheet_name="RAW", index=False)
+            # Сохраняем RAW только если он не пустой и не превышает лимит
+            if len(raw_df_to_save) > 0:
+                raw_df_to_save.to_excel(writer, sheet_name="RAW", index=False)
             summary_df.to_excel(writer, sheet_name="Исходник", index=False)
             calculated_df.to_excel(writer, sheet_name="Расчет", index=False)
             normalized_df.to_excel(writer, sheet_name="Нормализация", index=False)
@@ -4488,8 +4519,9 @@ class ExcelFormatter:
         wb = load_workbook(output_path)
         
         # Форматируем все листы
+        # ВАЖНО: Используем ограниченный raw_df для форматирования (если был ограничен при сохранении)
         sheet_data = {
-            "RAW": raw_df,
+            "RAW": raw_df_to_save if len(raw_df_to_save) > 0 else pd.DataFrame(),
             "Исходник": summary_df,
             "Расчет": calculated_df,
             "Нормализация": normalized_df,
