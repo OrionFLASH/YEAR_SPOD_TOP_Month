@@ -4928,6 +4928,13 @@ def main():
         logger.info(f"Колонок в результате: {len(summary_df.columns)}", "main", "main")
         logger.info("=" * 80, "main", "main")
         
+    except KeyboardInterrupt:
+        # Обработка прерывания пользователем (Ctrl+C)
+        logger.warning("=" * 80, "main", "main")
+        logger.warning("Обработка прервана пользователем (Ctrl+C)", "main", "main")
+        logger.warning("=" * 80, "main", "main")
+        sys.exit(0)
+        
     except Exception as e:
         logger.error(f"Критическая ошибка при выполнении: {str(e)}", "main", "main")
         import traceback
