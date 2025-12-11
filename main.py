@@ -59,8 +59,9 @@ CHUNK_SIZE = 50000  # Размер chunk для чтения больших фа
 CHUNKING_THRESHOLD_MB = 200  # Порог размера файла для chunking (МБ) - если файл больше, используем chunking
 
 # Параметры детального логирования
-DEBUG_TAB_NUMBER: Optional[str] = None  # Табельный номер для детального логирования (например, "12345678" или None для отключения)
-# Если указан, в лог будет записываться подробная информация о всех операциях с этим табельным номером
+DEBUG_TAB_NUMBER: Optional[List[str]] = None  # Список табельных номеров для детального логирования (например, ["12345678", "87654321"] или None для отключения)
+# Если указан список, в лог будет записываться подробная информация о всех операциях с этими табельными номерами
+# Если список пустой или None, детальное логирование отключено
 
 # Параметр выбора режима данных
 DATA_MODE: str = "TEST"  # "TEST" - тестовые данные, "PROM" - пром данные
@@ -1007,9 +1008,37 @@ class Logger:
             return match.group(0)
         return re.sub(pattern, mask_match, text)
     
+    def _mask_fio(self, text: str) -> str:
+        """
+        Маскирует ФИО в тексте: от каждого слова оставляем первые 2 буквы, далее три звездочки и последняя 1 буква.
+        Пример: Петров Иван Владимирович -> Пе***в Ив***н Вл***ч
+        
+        Args:
+            text: Текст для маскировки
+            
+        Returns:
+            str: Текст с замаскированными ФИО
+        """
+        # Ищем ФИО - слова, которые могут быть именами (кириллица, заглавные буквы в начале)
+        # Паттерн ищет последовательности слов с заглавной буквы (кириллица)
+        # Улучшенный паттерн: ищем слова с заглавной буквы, которые могут быть частью ФИО
+        pattern = r'\b([А-ЯЁ][а-яё]{2,})\b'
+        def mask_fio_word(match):
+            word = match.group(1)
+            if len(word) >= 4:
+                # Первые 2 буквы + *** + последняя буква
+                return f"{word[:2]}***{word[-1]}"
+            elif len(word) >= 3:
+                # Если слово короткое (3 буквы), маскируем среднюю
+                return f"{word[0]}***{word[-1]}"
+            else:
+                # Очень короткие слова не маскируем
+                return word
+        return re.sub(pattern, mask_fio_word, text)
+    
     def _mask_sensitive_data(self, text: str) -> str:
         """
-        Маскирует все чувствительные данные (табельные номера и ИД клиентов).
+        Маскирует все чувствительные данные (табельные номера, ИД клиентов и ФИО).
         
         Args:
             text: Текст для маскировки
@@ -1019,11 +1048,13 @@ class Logger:
         """
         text = self._mask_tab_number(text)
         text = self._mask_client_id(text)
+        text = self._mask_fio(text)
         return text
     
     def _is_debug_tab_number(self, tab_number: Any) -> bool:
         """
         Проверяет, является ли табельный номер тем, для которого нужно детальное логирование.
+        Поддерживает список табельных номеров.
         
         Args:
             tab_number: Табельный номер для проверки
@@ -1031,7 +1062,7 @@ class Logger:
         Returns:
             bool: True, если это табельный номер для детального логирования
         """
-        if DEBUG_TAB_NUMBER is None or not DEBUG_TAB_NUMBER:
+        if DEBUG_TAB_NUMBER is None or not DEBUG_TAB_NUMBER or len(DEBUG_TAB_NUMBER) == 0:
             return False
         
         if tab_number is None or pd.isna(tab_number):
@@ -1039,15 +1070,21 @@ class Logger:
         
         # Нормализуем табельный номер для сравнения
         tab_str = str(tab_number).strip().lstrip('0')
-        debug_tab_str = str(DEBUG_TAB_NUMBER).strip().lstrip('0')
         
-        # Сравниваем нормализованные значения
-        return tab_str == debug_tab_str
+        # Проверяем, есть ли этот табельный номер в списке
+        for debug_tab in DEBUG_TAB_NUMBER:
+            if debug_tab is None:
+                continue
+            debug_tab_str = str(debug_tab).strip().lstrip('0')
+            if tab_str == debug_tab_str:
+                return True
+        
+        return False
     
     def debug_tab(self, message: str, tab_number: Any = None, class_name: Optional[str] = None, func_name: Optional[str] = None) -> None:
         """
         Детальное логирование для указанного табельного номера.
-        Логирует только если DEBUG_TAB_NUMBER указан и совпадает с tab_number.
+        Логирует только если DEBUG_TAB_NUMBER указан (список) и содержит tab_number.
         
         Args:
             message: Сообщение для логирования
@@ -1055,8 +1092,8 @@ class Logger:
             class_name: Имя класса (опционально)
             func_name: Имя функции (опционально)
         """
-        # Если DEBUG_TAB_NUMBER не указан, ничего не делаем
-        if DEBUG_TAB_NUMBER is None or not DEBUG_TAB_NUMBER:
+        # Если DEBUG_TAB_NUMBER не указан или пустой список, ничего не делаем
+        if DEBUG_TAB_NUMBER is None or not DEBUG_TAB_NUMBER or len(DEBUG_TAB_NUMBER) == 0:
             return
         
         # Если указан tab_number, проверяем совпадение
@@ -1064,7 +1101,7 @@ class Logger:
             if not self._is_debug_tab_number(tab_number):
                 return
         
-        # Маскируем чувствительные данные
+        # Маскируем чувствительные данные (включая ФИО)
         masked_message = self._mask_sensitive_data(message)
         
         # Форматируем сообщение
@@ -1181,6 +1218,30 @@ class Logger:
 class FileProcessor:
     """Класс для обработки Excel файлов."""
     
+    def _create_debug_tab_mask(self, df: pd.DataFrame, tab_column: str) -> pd.Series:
+        """
+        Создает маску для детального логирования табельных номеров из списка DEBUG_TAB_NUMBER.
+        
+        Args:
+            df: DataFrame для создания маски
+            tab_column: Название колонки с табельными номерами
+            
+        Returns:
+            pd.Series: Булева маска (True для строк с табельными номерами из DEBUG_TAB_NUMBER)
+        """
+        if DEBUG_TAB_NUMBER is None or len(DEBUG_TAB_NUMBER) == 0 or tab_column not in df.columns:
+            return pd.Series([False] * len(df), index=df.index)
+        
+        debug_mask = pd.Series([False] * len(df), index=df.index)
+        for debug_tab in DEBUG_TAB_NUMBER:
+            if debug_tab is None:
+                continue
+            debug_tab_str = str(debug_tab).strip().lstrip('0')
+            tab_mask = df[tab_column].astype(str).str.strip().str.lstrip('0') == debug_tab_str
+            debug_mask = debug_mask | tab_mask
+        
+        return debug_mask
+    
     def __init__(self, input_dir: str = INPUT_DIR, logger_instance: Optional[Logger] = None):
         """
         Инициализация процессора файлов.
@@ -1196,10 +1257,11 @@ class FileProcessor:
         self.logger = logger_instance
         
         # ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ: Информируем о включенном режиме детального логирования
-        if DEBUG_TAB_NUMBER:
+        if DEBUG_TAB_NUMBER and len(DEBUG_TAB_NUMBER) > 0:
+            tab_numbers_str = ", ".join(DEBUG_TAB_NUMBER)
             self.logger.info(
-                f"Включено детальное логирование для табельного номера: {DEBUG_TAB_NUMBER}. "
-                f"Все операции с этим табельным номером будут подробно логироваться.",
+                f"Включено детальное логирование для табельных номеров: {tab_numbers_str}. "
+                f"Все операции с этими табельными номерами будут подробно логироваться.",
                 "FileProcessor",
                 "__init__"
             )
@@ -1331,19 +1393,27 @@ class FileProcessor:
             self.logger.debug(f"Параллельная загрузка {len(files_to_load)} файлов группы {group} (max_workers={MAX_WORKERS})", "FileProcessor", "_load_group_files")
             
             # Загружаем файлы параллельно
+            # ВАЖНО: Используем ThreadPoolExecutor для I/O операций (чтение Excel файлов)
+            # pandas.read_excel может блокироваться на уровне GIL, но ThreadPoolExecutor должен справиться
             with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-                # Создаем задачи для загрузки
+                # Создаем задачи для загрузки - все файлы отправляются в очередь одновременно
                 future_to_file = {
                     executor.submit(self._load_file, file_path, group): (file_path, item, defaults)
                     for file_path, item, group, defaults in files_to_load
                 }
                 
-                # Обрабатываем результаты по мере завершения
+                self.logger.debug(f"Отправлено {len(future_to_file)} задач на параллельную загрузку файлов группы {group}", "FileProcessor", "_load_group_files")
+                
+                # Обрабатываем результаты по мере завершения (as_completed гарантирует обработку по готовности)
+                completed_count = 0
                 for future in as_completed(future_to_file):
                     file_path, item, defaults = future_to_file[future]
+                    completed_count += 1
+                    self.logger.debug(f"Завершена загрузка файла {file_path.name} ({completed_count}/{len(future_to_file)})", "FileProcessor", "_load_group_files")
                     try:
                         df = future.result()
                         if df is not None and not df.empty:
+                            # ВАЖНО: Запись в словарь происходит последовательно, но это быстро
                             group_files[file_path.name] = df
                             
                             # Статистика по файлу
@@ -1543,8 +1613,11 @@ class FileProcessor:
             
             # Обычная загрузка (если chunking не использовался или не сработал)
             if df is None:
+                # ДИАГНОСТИКА: Логируем начало загрузки файла для проверки параллельности
+                self.logger.debug(f"Начало загрузки файла {file_path.name} (группа {group_name})", "FileProcessor", "_load_file")
                 try:
                     df = pd.read_excel(file_path, **read_params)
+                    self.logger.debug(f"Завершена загрузка файла {file_path.name} (группа {group_name}): {len(df)} строк", "FileProcessor", "_load_file")
                 except Exception as e:
                     # Если не удалось загрузить с параметрами, пробуем без usecols
                     self.logger.warning(f"Ошибка при загрузке с параметрами, пробуем без usecols: {str(e)}", "FileProcessor", "_load_file")
@@ -1664,9 +1737,10 @@ class FileProcessor:
                 # Заменяем None на пустую строку для единообразия
                 df[tb_col] = df[tb_col].fillna('')
             
-            # ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ: Если указан DEBUG_TAB_NUMBER, логируем данные по этому табельному
-            if DEBUG_TAB_NUMBER and tab_number_col in df.columns:
-                debug_rows = df[df[tab_number_col].astype(str).str.strip().str.lstrip('0') == str(DEBUG_TAB_NUMBER).strip().lstrip('0')]
+            # ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ: Если указан DEBUG_TAB_NUMBER, логируем данные по этим табельным
+            if DEBUG_TAB_NUMBER and len(DEBUG_TAB_NUMBER) > 0 and tab_number_col in df.columns:
+                debug_mask = self._create_debug_tab_mask(df, tab_number_col)
+                debug_rows = df[debug_mask]
                 if len(debug_rows) > 0:
                     indicator_col = defaults.indicator_column
                     client_id_col = "client_id"
@@ -1678,9 +1752,10 @@ class FileProcessor:
                         fio_value = row.get(defaults.fio_column, '')
                         indicator_value = row.get(indicator_col, 0)
                         
+                        # ФИО уже будет замаскировано в _mask_sensitive_data при логировании
                         self.logger.debug_tab(
                             f"Загрузка файла {file_path.name} (группа {group_name}): найдена строка для ТН. "
-                            f"Клиент: {client_id}, ТБ: {tb_value}, ГОСБ: {gosb_value}, ФИО: {fio_value}, "
+                            f"Клиент: {client_id}, ТБ: {tb_value}, ФИО: {fio_value}, "
                             f"Показатель ({indicator_col}): {indicator_value}",
                             tab_number=row.get(tab_number_col),
                             class_name="FileProcessor",
@@ -2183,17 +2258,23 @@ class FileProcessor:
                         tab_data = grouped[grouped[tab_col] == tab_num]
                         if len(tab_data) > 1:
                             # Формируем детальную информацию о вариантах
+                            # ВАЖНО: Сумма не маскируется и форматируется с разделителем разрядов
                             variants_list = []
                             for _, variant_row in tab_data.iterrows():
-                                variants_list.append(f"ТБ='{variant_row.get(tb_col, '')}' (сумма={variant_row.get(indicator_col, 0):.2f})")
+                                sum_value = variant_row.get(indicator_col, 0)
+                                # Форматируем сумму с разделителем разрядов и двумя знаками после запятой
+                                sum_formatted = f"{sum_value:,.2f}".replace(",", " ").replace(".", ",")
+                                variants_list.append(f"ТБ='{variant_row.get(tb_col, '')}' (сумма={sum_formatted})")
                             
                             selected_tb = max_row.get(tb_col, '')
                             selected_sum = max_row.get(indicator_col, 0)
+                            # Форматируем выбранную сумму с разделителем разрядов
+                            selected_sum_formatted = f"{selected_sum:,.2f}".replace(",", " ").replace(".", ",")
                             
                             self.logger.debug(
                                 f"В файле {file_name} для табельного {tab_num} найдено {len(tab_data)} вариантов ТБ: "
                                 f"{', '.join(variants_list)}. "
-                                f"Выбран вариант: ТБ='{selected_tb}' с максимальной суммой показателя: {selected_sum:.2f}",
+                                f"Выбран вариант: ТБ='{selected_tb}' с максимальной суммой показателя: {selected_sum_formatted}",
                                 "FileProcessor", "collect_unique_tab_numbers"
                             )
                             
@@ -2201,17 +2282,23 @@ class FileProcessor:
                         if self.logger._is_debug_tab_number(tab_num):
                             variants_info = []
                             for _, variant_row in tab_data.iterrows():
+                                sum_value = variant_row.get(indicator_col, 0)
+                                # Форматируем сумму с разделителем разрядов (не маскируется)
+                                sum_formatted = f"{sum_value:,.2f}".replace(",", " ").replace(".", ",")
                                 variants_info.append({
                                     "ТБ": variant_row.get(tb_col, ''),
-                                    "ФИО": variant_row.get(fio_col, ''),
-                                    "Показатель": variant_row.get(indicator_col, 0)
+                                    "ФИО": variant_row.get(fio_col, ''),  # ФИО будет замаскировано в _mask_sensitive_data
+                                    "Показатель": sum_formatted  # Форматированная сумма с разделителем
                                 })
+                            
+                            selected_sum = max_row.get(indicator_col, 0)
+                            selected_sum_formatted = f"{selected_sum:,.2f}".replace(",", " ").replace(".", ",")
                             
                             self.logger.debug_tab(
                                 f"Выбор варианта ТБ для табельного в файле {file_name} (группа {group}): "
                                 f"найдено {len(tab_data)} вариантов. Все варианты: {variants_info}. "
                                 f"Выбран вариант с максимальной суммой показателя: ТБ='{max_row.get(tb_col, '')}', "
-                                f"ФИО='{max_row.get(fio_col, '')}', Показатель={max_row.get(indicator_col, 0):.2f}",
+                                f"ФИО='{max_row.get(fio_col, '')}', Показатель={selected_sum_formatted}",
                                 tab_number=tab_num,
                                 class_name="FileProcessor",
                                 func_name="collect_unique_tab_numbers"
@@ -2417,9 +2504,10 @@ class FileProcessor:
         # Группируем по уникальным комбинациям ТН+ФИО+ТБ+ИНН (без ГОСБ) и суммируем показатель
         grouped = df.groupby([tab_col, fio_col, tb_col, "client_id"], as_index=False)[indicator_col].sum()
         
-        # ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ: Логируем данные для указанного табельного в RAW
-        if DEBUG_TAB_NUMBER and tab_col in grouped.columns:
-            debug_rows = grouped[grouped[tab_col].astype(str).str.strip().str.lstrip('0') == str(DEBUG_TAB_NUMBER).strip().lstrip('0')]
+        # ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ: Логируем данные для указанных табельных в RAW
+        if DEBUG_TAB_NUMBER and len(DEBUG_TAB_NUMBER) > 0 and tab_col in grouped.columns:
+            debug_mask = self._create_debug_tab_mask(grouped, tab_col)
+            debug_rows = grouped[debug_mask]
             if len(debug_rows) > 0:
                 for _, row in debug_rows.iterrows():
                     self.logger.debug_tab(
@@ -3147,8 +3235,8 @@ class FileProcessor:
                             calculated_df[full_name] = curr_val - prev_val
                             
                             # ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ: Логируем расчет для указанного табельного
-                            if DEBUG_TAB_NUMBER and "Табельный" in summary_df.columns:
-                                debug_mask = summary_df["Табельный"].astype(str).str.strip().str.lstrip('0') == str(DEBUG_TAB_NUMBER).strip().lstrip('0')
+                            if DEBUG_TAB_NUMBER and len(DEBUG_TAB_NUMBER) > 0 and "Табельный" in summary_df.columns:
+                                debug_mask = self._create_debug_tab_mask(summary_df, "Табельный")
                                 if debug_mask.any():
                                     debug_idx = summary_df[debug_mask].index[0]
                                     curr_val_debug = curr_val.loc[debug_idx] if debug_idx in curr_val.index else 0
@@ -3160,7 +3248,7 @@ class FileProcessor:
                                         f"текущее значение (M-{month})={curr_val_debug}, "
                                         f"предыдущее значение (M-{prev_month})={prev_val_debug}, "
                                         f"результат (прирост)={result_debug}",
-                                        tab_number=DEBUG_TAB_NUMBER,
+                                        tab_number=None,  # Проверка уже сделана через debug_mask
                                         class_name="FileProcessor",
                                         func_name="prepare_calculated_data"
                                     )
@@ -3354,8 +3442,8 @@ class FileProcessor:
             normalized_cols[norm_col_name] = normalized
             
             # ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ: Логируем нормализацию для указанного табельного
-            if DEBUG_TAB_NUMBER and "Табельный" in calculated_df.columns:
-                debug_mask = calculated_df["Табельный"].astype(str).str.strip().str.lstrip('0') == str(DEBUG_TAB_NUMBER).strip().lstrip('0')
+            if DEBUG_TAB_NUMBER and len(DEBUG_TAB_NUMBER) > 0 and "Табельный" in calculated_df.columns:
+                debug_mask = self._create_debug_tab_mask(calculated_df, "Табельный")
                 if debug_mask.any():
                     debug_idx = calculated_df[debug_mask].index[0]
                     col = group_cols[month]
@@ -3551,8 +3639,8 @@ class FileProcessor:
         score_col_name = f"Score (M-{month})"
         
         # ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ: Логируем расчет Score для указанного табельного
-        if DEBUG_TAB_NUMBER and "Табельный" in normalized_df.columns:
-            debug_mask = normalized_df["Табельный"].astype(str).str.strip().str.lstrip('0') == str(DEBUG_TAB_NUMBER).strip().lstrip('0')
+        if DEBUG_TAB_NUMBER and len(DEBUG_TAB_NUMBER) > 0 and "Табельный" in normalized_df.columns:
+            debug_mask = self._create_debug_tab_mask(normalized_df, "Табельный")
             if debug_mask.any():
                 debug_idx = normalized_df[debug_mask].index[0]
                 od_val = normalized_df.loc[debug_idx, od_norm_col] if od_norm_col in normalized_df.columns and debug_idx in normalized_df.index else 0
@@ -3566,14 +3654,14 @@ class FileProcessor:
                     f"RA_norm={ra_val:.4f} × {weight_ra} = {ra_val * weight_ra:.4f}, "
                     f"PS_norm={ps_val:.4f} × {weight_ps} = {ps_val * weight_ps:.4f}, "
                     f"Итого Score={score_val:.4f}",
-                    tab_number=DEBUG_TAB_NUMBER,
+                    tab_number=None,  # Проверка уже сделана через debug_mask
                     class_name="FileProcessor",
                     func_name="_calculate_score_for_month"
                 )
         
         return (score_col_name, score)
     
-    def _calculate_best_month_variant3(self, calculated_df: pd.DataFrame, normalized_df: pd.DataFrame, config_manager) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    def _calculate_best_month_variant3(self, calculated_df: pd.DataFrame, normalized_df: pd.DataFrame, config_manager, raw_df: Optional[pd.DataFrame] = None) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """
         Рассчитывает лучший месяц для каждого КМ на основе нормализованных значений (вариант 3).
         
@@ -3583,6 +3671,7 @@ class FileProcessor:
             calculated_df: DataFrame с расчетными данными
             normalized_df: DataFrame с нормализованными данными
             config_manager: Менеджер конфигурации
+            raw_df: DataFrame с сырыми данными (лист RAW) для подсчета уникальных ИНН (опционально)
         
         Returns:
             Tuple[DataFrame для "Места и выбор", DataFrame для "Итог"]
@@ -3636,6 +3725,23 @@ class FileProcessor:
         
         # ВАЖНО: Сбрасываем индекс перед копированием, чтобы гарантировать совпадение строк
         final_df = calculated_df[base_columns].copy().reset_index(drop=True)
+        
+        # Добавляем колонку с числом уникальных ИНН для каждого табельного номера (из RAW)
+        if raw_df is not None and "Табельный" in raw_df.columns and "ИНН" in raw_df.columns:
+            # Подсчитываем количество уникальных ИНН для каждого табельного номера
+            unique_inn_count = raw_df.groupby("Табельный")["ИНН"].nunique().to_dict()
+            # Добавляем колонку в final_df
+            final_df["Количество уникальных ИНН"] = final_df["Табельный"].apply(
+                lambda x: unique_inn_count.get(str(x).strip().lstrip('0'), 0)
+            )
+            self.logger.debug(f"Добавлена колонка 'Количество уникальных ИНН' в final_df", "FileProcessor", "_calculate_best_month_variant3")
+        else:
+            # Если raw_df не передан или нет нужных колонок, заполняем нулями
+            final_df["Количество уникальных ИНН"] = 0
+            if raw_df is None:
+                self.logger.debug(f"raw_df не передан, колонка 'Количество уникальных ИНН' заполнена нулями", "FileProcessor", "_calculate_best_month_variant3")
+            else:
+                self.logger.warning(f"В raw_df отсутствуют колонки 'Табельный' или 'ИНН', колонка 'Количество уникальных ИНН' заполнена нулями", "FileProcessor", "_calculate_best_month_variant3")
         
         # ВАЖНО: Проверяем, что данные не пустые
         if len(places_df) > 0:
@@ -4664,7 +4770,7 @@ def main():
         
         # Рассчитываем лучший месяц (вариант 3)
         logger.info("Этап 7: Расчет лучшего месяца", "main", "main")
-        places_df, final_df = processor._calculate_best_month_variant3(calculated_df, normalized_df, config_manager)
+        places_df, final_df = processor._calculate_best_month_variant3(calculated_df, normalized_df, config_manager, raw_df)
         
         # Подготавливаем лист статистики (если включен)
         statistics_df = None
