@@ -4605,6 +4605,9 @@ class ExcelFormatter:
                 col_types[col_idx] = "tab"
             elif col_name in base_columns:
                 col_types[col_idx] = "text"
+            elif col_name == "Количество уникальных ИНН":
+                # Целое число с разделителем разрядов без дробной части
+                col_types[col_idx] = "inn_count"
             elif col_name and col_name.startswith("Score"):
                 col_types[col_idx] = "score"
             elif col_name and "_norm" in col_name:
@@ -4655,7 +4658,8 @@ class ExcelFormatter:
                                 cell.alignment = align_right
                             else:
                                 cell.alignment = align_right
-                        elif col_type == "rank":
+                        elif col_type == "rank" or col_type == "inn_count":
+                            # Ранги и количество уникальных ИНН: целое число с разделителем разрядов
                             if pd.notna(cell.value) and isinstance(cell.value, (int, float)):
                                 cell.number_format = rank_format
                                 cell.alignment = align_right
