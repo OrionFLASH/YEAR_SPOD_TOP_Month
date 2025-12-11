@@ -1826,7 +1826,8 @@ class FileProcessor:
         rules_by_column: Dict[str, List[DropRule]] = {}
         for rule in drop_rules:
             if rule.alias not in cleaned.columns:
-                self.logger.warning(f"Колонка {rule.alias} отсутствует в файле {file_name}, пропускаем правило", "FileProcessor", "_apply_drop_rules")
+                # Колонка может отсутствовать в некоторых файлах - это нормальная ситуация
+                self.logger.debug(f"Колонка {rule.alias} отсутствует в файле {file_name}, пропускаем правило", "FileProcessor", "_apply_drop_rules")
                 continue
             
             if not rule.remove_unconditionally:
@@ -1973,7 +1974,8 @@ class FileProcessor:
         
         for rule in in_rules:
             if rule.alias not in df.columns:
-                self.logger.warning(f"Колонка {rule.alias} отсутствует в файле {file_name}, пропускаем правило", "FileProcessor", "_apply_in_rules")
+                # Колонка может отсутствовать в некоторых файлах - это нормальная ситуация
+                self.logger.debug(f"Колонка {rule.alias} отсутствует в файле {file_name}, пропускаем правило", "FileProcessor", "_apply_in_rules")
                 continue
             
             # Формируем множество разрешенных значений
