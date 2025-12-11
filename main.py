@@ -2026,9 +2026,9 @@ class FileProcessor:
         2. Поиск выполняется в порядке приоритета:
            - Группы: OD -> RA -> PS
            - Месяцы: декабрь (M-12) -> ноябрь (M-11) -> ... -> январь (M-1)
-        3. Для каждого табельного номера берется ПЕРВЫЙ найденный ТБ и ГОСБ
-        4. Если табельный номер уже найден в файле с более высоким приоритетом, 
-           он НЕ обновляется - остается ранее найденный ТБ и ГОСБ
+        3. Для каждого табельного номера берется ПЕРВЫЙ найденный ТБ
+        4. Если табельный номер уже найден в файле с более высоким приоритетом,
+           он НЕ обновляется - остается ранее найденный ТБ
         
         Результат: каждый табельный номер встречается в итоговом списке только один раз.
         """
@@ -2132,21 +2132,20 @@ class FileProcessor:
                     continue
                 
                 # ВАЖНО: В каждом файле табельные номера должны быть уникальны
-                # Если у табельного номера несколько разных ТБ/ГОСБ, выбираем тот, у которого сумма показателя больше
+                # Если у табельного номера несколько разных ТБ, выбираем тот, у которого сумма показателя больше
                 # Это делается только если табельный номер еще не встречался ранее
                 current_priority = group_priority[group] * 100 + month
                 indicator_col = defaults.indicator_column
                 
                 # ОПТИМИЗАЦИЯ: Выбираем уникальные строки для каждого табельного номера
-                # Сначала суммируем показатели по комбинациям ТН+ТБ+ГОСБ, затем выбираем максимум
+                # Сначала суммируем показатели по комбинациям ТН+ТБ+ФИО, затем выбираем максимум
                 if indicator_col in df_normalized.columns:
-                    # Шаг 1: Группируем по ТН+ТБ+ГОСБ+ФИО и суммируем показатели (быстро, векторизовано)
+                    # Шаг 1: Группируем по ТН+ТБ+ФИО и суммируем показатели (быстро, векторизовано)
                     # ВАЖНО: Включаем fio_col в группировку, чтобы он был доступен после merge
+                    # ГОСБ не используется для группировки, но остается в параметрах для обратной совместимости
                     group_cols = [tab_col]
                     if tb_col in df_normalized.columns:
                         group_cols.append(tb_col)
-                    if gosb_col in df_normalized.columns:
-                        group_cols.append(gosb_col)
                     if fio_col in df_normalized.columns:
                         group_cols.append(fio_col)
                     
@@ -2183,25 +2182,36 @@ class FileProcessor:
                         tab_num = max_row[tab_col]
                         tab_data = grouped[grouped[tab_col] == tab_num]
                         if len(tab_data) > 1:
-                            self.logger.debug(f"В файле {file_name} для табельного {tab_num} найдено {len(tab_data)} вариантов ТБ/ГОСБ, выбран вариант с максимальной суммой показателя: {max_row[indicator_col]:.2f}", "FileProcessor", "collect_unique_tab_numbers")
-                        
+                            # Формируем детальную информацию о вариантах
+                            variants_list = []
+                            for _, variant_row in tab_data.iterrows():
+                                variants_list.append(f"ТБ='{variant_row.get(tb_col, '')}' (сумма={variant_row.get(indicator_col, 0):.2f})")
+                            
+                            selected_tb = max_row.get(tb_col, '')
+                            selected_sum = max_row.get(indicator_col, 0)
+                            
+                            self.logger.debug(
+                                f"В файле {file_name} для табельного {tab_num} найдено {len(tab_data)} вариантов ТБ: "
+                                f"{', '.join(variants_list)}. "
+                                f"Выбран вариант: ТБ='{selected_tb}' с максимальной суммой показателя: {selected_sum:.2f}",
+                                "FileProcessor", "collect_unique_tab_numbers"
+                            )
+                            
                         # ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ: Логируем выбор варианта для указанного табельного
                         if self.logger._is_debug_tab_number(tab_num):
                             variants_info = []
                             for _, variant_row in tab_data.iterrows():
                                 variants_info.append({
                                     "ТБ": variant_row.get(tb_col, ''),
-                                    "ГОСБ": variant_row.get(gosb_col, ''),
                                     "ФИО": variant_row.get(fio_col, ''),
                                     "Показатель": variant_row.get(indicator_col, 0)
                                 })
                             
                             self.logger.debug_tab(
-                                f"Выбор варианта ТБ/ГОСБ для табельного в файле {file_name} (группа {group}): "
+                                f"Выбор варианта ТБ для табельного в файле {file_name} (группа {group}): "
                                 f"найдено {len(tab_data)} вариантов. Все варианты: {variants_info}. "
                                 f"Выбран вариант с максимальной суммой показателя: ТБ='{max_row.get(tb_col, '')}', "
-                                f"ГОСБ='{max_row.get(gosb_col, '')}', ФИО='{max_row.get(fio_col, '')}', "
-                                f"Показатель={max_row.get(indicator_col, 0):.2f}",
+                                f"ФИО='{max_row.get(fio_col, '')}', Показатель={max_row.get(indicator_col, 0):.2f}",
                                 tab_number=tab_num,
                                 class_name="FileProcessor",
                                 func_name="collect_unique_tab_numbers"
@@ -2210,11 +2220,10 @@ class FileProcessor:
                     # Шаг 3: Находим соответствующие строки в исходном DataFrame через merge (быстро)
                     # Используем merge вместо циклов с mask - это векторизованная операция
                     # ВАЖНО: Включаем все нужные колонки в merge, чтобы они были доступны в df_unique
+                    # ГОСБ не используется для merge, но остается в параметрах для обратной совместимости
                     merge_cols = [tab_col]
                     if tb_col in max_rows.columns:
                         merge_cols.append(tb_col)
-                    if gosb_col in max_rows.columns:
-                        merge_cols.append(gosb_col)
                     if fio_col in max_rows.columns:
                         merge_cols.append(fio_col)
                     
@@ -2229,8 +2238,6 @@ class FileProcessor:
                     missing_cols = []
                     if tb_col not in df_unique.columns:
                         missing_cols.append(tb_col)
-                    if gosb_col not in df_unique.columns:
-                        missing_cols.append(gosb_col)
                     if fio_col not in df_unique.columns:
                         missing_cols.append(fio_col)
                     
@@ -2240,9 +2247,8 @@ class FileProcessor:
                         # Проверяем, что данные не пустые
                         if len(df_unique) > 0:
                             sample_tb = df_unique[tb_col].iloc[0] if tb_col in df_unique.columns else None
-                            sample_gosb = df_unique[gosb_col].iloc[0] if gosb_col in df_unique.columns else None
                             sample_fio = df_unique[fio_col].iloc[0] if fio_col in df_unique.columns else None
-                            self.logger.debug(f"df_unique после merge для файла {file_name}: {len(df_unique)} строк. Пример: ТБ='{sample_tb}', ГОСБ='{sample_gosb}', ФИО='{sample_fio}'", "FileProcessor", "collect_unique_tab_numbers")
+                            self.logger.debug(f"df_unique после merge для файла {file_name}: {len(df_unique)} строк. Пример: ТБ='{sample_tb}', ФИО='{sample_fio}'", "FileProcessor", "collect_unique_tab_numbers")
                 else:
                     # Если нет колонки с показателем, используем старую логику
                     df_unique = df_normalized.drop_duplicates(subset=[tab_col], keep='first')
@@ -2268,9 +2274,9 @@ class FileProcessor:
                 # ВАЖНО: Используем нормализованные значения из df_unique напрямую
                 # ОПТИМИЗАЦИЯ: Используем itertuples() вместо iterrows() для ускорения (12x быстрее)
                 # Получаем индексы колонок один раз для быстрого доступа
+                # ГОСБ не используется для обработки, но остается в параметрах для обратной совместимости
                 tab_col_idx = df_unique.columns.get_loc(tab_col) if tab_col in df_unique.columns else -1
                 tb_col_idx = df_unique.columns.get_loc(tb_col) if tb_col in df_unique.columns else -1
-                gosb_col_idx = df_unique.columns.get_loc(gosb_col) if gosb_col in df_unique.columns else -1
                 fio_col_idx = df_unique.columns.get_loc(fio_col) if fio_col in df_unique.columns else -1
                 
                 # РАСШИРЕННОЕ ЛОГИРОВАНИЕ: Проверяем наличие колонок
@@ -2278,8 +2284,6 @@ class FileProcessor:
                     self.logger.warning(f"Колонка '{tab_col}' не найдена в df_unique для файла {file_name}. Доступные колонки: {list(df_unique.columns)}", "FileProcessor", "collect_unique_tab_numbers")
                 if tb_col_idx < 0:
                     self.logger.warning(f"Колонка '{tb_col}' не найдена в df_unique для файла {file_name}. Доступные колонки: {list(df_unique.columns)}", "FileProcessor", "collect_unique_tab_numbers")
-                if gosb_col_idx < 0:
-                    self.logger.warning(f"Колонка '{gosb_col}' не найдена в df_unique для файла {file_name}. Доступные колонки: {list(df_unique.columns)}", "FileProcessor", "collect_unique_tab_numbers")
                 if fio_col_idx < 0:
                     self.logger.warning(f"Колонка '{fio_col}' не найдена в df_unique для файла {file_name}. Доступные колонки: {list(df_unique.columns)}", "FileProcessor", "collect_unique_tab_numbers")
                 
@@ -2295,18 +2299,18 @@ class FileProcessor:
                         continue
                     
                     # ВАЖНО: Если табельный номер уже найден ранее (в файле с более высоким приоритетом),
-                    # НЕ обновляем его - оставляем ранее найденный ТБ и ГОСБ
+                    # НЕ обновляем его - оставляем ранее найденный ТБ
                     # Алгоритм: ищем от OD к PS, от декабря к январю, берем ПЕРВЫЙ найденный
                     if tab_number not in all_tab_data:
                         # Табельный номер еще не встречался - добавляем его
                         # ВАЖНО: Извлекаем значения с проверкой на NaN и пустые строки
+                        # ГОСБ не используется для обработки, но остается в словаре для обратной совместимости
                         tb_val = row_tuple[tb_col_idx] if tb_col_idx >= 0 and tb_col_idx < len(row_tuple) else None
-                        gosb_val = row_tuple[gosb_col_idx] if gosb_col_idx >= 0 and gosb_col_idx < len(row_tuple) else None
                         fio_val = row_tuple[fio_col_idx] if fio_col_idx >= 0 and fio_col_idx < len(row_tuple) else None
                         
                         # РАСШИРЕННОЕ ЛОГИРОВАНИЕ: Логируем первые несколько записей с детальной информацией
                         if len(all_tab_data) < 5:
-                            self.logger.debug(f"Извлечение данных для табельного {tab_number}: tb_col_idx={tb_col_idx}, gosb_col_idx={gosb_col_idx}, fio_col_idx={fio_col_idx}, len(row_tuple)={len(row_tuple)}, tb_val={tb_val}, gosb_val={gosb_val}, fio_val={fio_val}", "FileProcessor", "collect_unique_tab_numbers")
+                            self.logger.debug(f"Извлечение данных для табельного {tab_number}: tb_col_idx={tb_col_idx}, fio_col_idx={fio_col_idx}, len(row_tuple)={len(row_tuple)}, tb_val={tb_val}, fio_val={fio_val}", "FileProcessor", "collect_unique_tab_numbers")
                         
                         # Преобразуем в строку с обработкой NaN и пустых значений
                         if tb_val is not None and pd.notna(tb_val):
@@ -2315,13 +2319,6 @@ class FileProcessor:
                                 tb_str = ""
                         else:
                             tb_str = ""
-                        
-                        if gosb_val is not None and pd.notna(gosb_val):
-                            gosb_str = str(gosb_val).strip()
-                            if gosb_str.lower() in ['nan', 'none', '']:
-                                gosb_str = ""
-                        else:
-                            gosb_str = ""
                         
                         if fio_val is not None and pd.notna(fio_val):
                             fio_str = str(fio_val).strip()
@@ -2332,12 +2329,12 @@ class FileProcessor:
                         
                         # Логируем первые несколько записей для отладки
                         if len(all_tab_data) < 5:
-                            self.logger.debug(f"Добавлен табельный {tab_number}: ТБ='{tb_str}', ГОСБ='{gosb_str}', ФИО='{fio_str}' (из файла {file_name})", "FileProcessor", "collect_unique_tab_numbers")
+                            self.logger.debug(f"Добавлен табельный {tab_number}: ТБ='{tb_str}', ФИО='{fio_str}' (из файла {file_name})", "FileProcessor", "collect_unique_tab_numbers")
                         
                         all_tab_data[tab_number] = {
                             "tab_number": tab_number,
                             "tb": tb_str,
-                            "gosb": gosb_str,
+                            "gosb": "",  # Оставляем для обратной совместимости, но не используем
                             "fio": fio_str,
                             "group": group,
                             "month": month,
@@ -2348,7 +2345,7 @@ class FileProcessor:
                         if self.logger._is_debug_tab_number(tab_number):
                             self.logger.debug_tab(
                                 f"Собран уникальный табельный номер из файла {file_name} (группа {group}, месяц M-{month}): "
-                                f"ТБ='{tb_str}', ГОСБ='{gosb_str}', ФИО='{fio_str}', приоритет={current_priority}",
+                                f"ТБ='{tb_str}', ФИО='{fio_str}', приоритет={current_priority}",
                                 tab_number=tab_number,
                                 class_name="FileProcessor",
                                 func_name="collect_unique_tab_numbers"
@@ -2361,7 +2358,7 @@ class FileProcessor:
                             f"Табельный номер уже найден ранее в файле {existing_data.get('group', '?')} M-{existing_data.get('month', '?')} "
                             f"(приоритет {existing_data.get('priority', '?')}). "
                             f"Текущий файл {file_name} (группа {group}, месяц M-{month}, приоритет {current_priority}) пропущен - "
-                            f"используются ранее найденные значения: ТБ='{existing_data.get('tb', '')}', ГОСБ='{existing_data.get('gosb', '')}', ФИО='{existing_data.get('fio', '')}'",
+                            f"используются ранее найденные значения: ТБ='{existing_data.get('tb', '')}', ФИО='{existing_data.get('fio', '')}'",
                             tab_number=tab_number,
                             class_name="FileProcessor",
                             func_name="collect_unique_tab_numbers"
@@ -2410,15 +2407,15 @@ class FileProcessor:
         fio_col = defaults.fio_column
         indicator_col = defaults.indicator_column
         
-        # Проверяем наличие необходимых колонок
-        required_cols = [tab_col, tb_col, gosb_col, fio_col, indicator_col]
+        # Проверяем наличие необходимых колонок (ГОСБ не требуется для группировки, но оставляем в параметрах)
+        required_cols = [tab_col, tb_col, fio_col, indicator_col]
         missing_cols = [col for col in required_cols if col not in df.columns]
         if missing_cols:
             self.logger.warning(f"В файле {file_name} отсутствуют колонки: {missing_cols}", "FileProcessor", "_process_file_for_raw")
             return None
         
-        # Группируем по уникальным комбинациям ТН+ФИО+ТБ+ГОСБ+ИНН и суммируем показатель
-        grouped = df.groupby([tab_col, fio_col, tb_col, gosb_col, "client_id"], as_index=False)[indicator_col].sum()
+        # Группируем по уникальным комбинациям ТН+ФИО+ТБ+ИНН (без ГОСБ) и суммируем показатель
+        grouped = df.groupby([tab_col, fio_col, tb_col, "client_id"], as_index=False)[indicator_col].sum()
         
         # ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ: Логируем данные для указанного табельного в RAW
         if DEBUG_TAB_NUMBER and tab_col in grouped.columns:
@@ -2427,19 +2424,18 @@ class FileProcessor:
                 for _, row in debug_rows.iterrows():
                     self.logger.debug_tab(
                         f"Подготовка RAW данных для файла {file_name} (группа {group}, месяц M-{month}): "
-                        f"ТБ='{row.get(tb_col, '')}', ГОСБ='{row.get(gosb_col, '')}', ФИО='{row.get(fio_col, '')}', "
+                        f"ТБ='{row.get(tb_col, '')}', ФИО='{row.get(fio_col, '')}', "
                         f"ИНН={row.get('client_id', '')}, Показатель={row.get(indicator_col, 0):.2f}",
                         tab_number=row.get(tab_col),
                         class_name="FileProcessor",
                         func_name="_process_file_for_raw"
                     )
         
-        # Переименовываем колонки для единообразия
+        # Переименовываем колонки для единообразия (без ГОСБ)
         grouped = grouped.rename(columns={
             tab_col: "Табельный",
             fio_col: "ФИО",
             tb_col: "ТБ",
-            gosb_col: "ГОСБ",
             "client_id": "ИНН",
             indicator_col: "Показатель"
         })
@@ -2527,7 +2523,7 @@ class FileProcessor:
         raw_df = pd.concat(raw_data_list, ignore_index=True)
         
         # ОПТИМИЗАЦИЯ: Используем pivot_table для создания сводной таблицы (быстрее чем циклы)
-        base_cols = ["Табельный", "ФИО", "ТБ", "ГОСБ", "ИНН"]
+        base_cols = ["Табельный", "ФИО", "ТБ", "ИНН"]
         
         # Функция для сортировки колонок: сначала по группе (OD, RA, PS), затем по номеру месяца
         def sort_column_key(col_name: str) -> tuple:
@@ -2701,7 +2697,7 @@ class FileProcessor:
                     full_name = f"{group}_{file_name}"
                     all_files.append((group, file_name, full_name))
         
-        self.logger.debug(f"Лист 'Данные': Всего колонок для обработки: {len(all_files)} (базовые: Табельный, ТБ, ГОСБ, ФИО + данные по группам и месяцам)", "FileProcessor", "prepare_summary_data")
+        self.logger.debug(f"Лист 'Данные': Всего колонок для обработки: {len(all_files)} (базовые: Табельный, ТБ, ФИО + данные по группам и месяцам)", "FileProcessor", "prepare_summary_data")
         
         # ОПТИМИЗАЦИЯ: Предварительно создаем индексы для всех файлов параллельно
         # Кэшируем конфигурации групп
@@ -2757,22 +2753,21 @@ class FileProcessor:
             tab_number_formatted = str(tab_number).zfill(8) if tab_number else "00000000"
             
             # ВАЖНО: Извлекаем значения напрямую из словаря (не через get с проверкой)
+            # ГОСБ не используется для вывода, но остается в tab_info для обратной совместимости
             tb_value = tab_info.get("tb", "") or ""
-            gosb_value = tab_info.get("gosb", "") or ""
             fio_value = tab_info.get("fio", "") or ""
             
             # РАСШИРЕННОЕ ЛОГИРОВАНИЕ: Логируем первые несколько записей и каждую 100-ю для отладки
             if processed_count <= 5 or processed_count % 100 == 0:
-                self.logger.debug(f"Подготовка строки для табельного {tab_number_formatted}: ТБ='{tb_value}', ГОСБ='{gosb_value}', ФИО='{fio_value}' (из tab_info: {list(tab_info.keys())}, значения: {tab_info})", "FileProcessor", "prepare_summary_data")
+                self.logger.debug(f"Подготовка строки для табельного {tab_number_formatted}: ТБ='{tb_value}', ФИО='{fio_value}' (из tab_info: {list(tab_info.keys())}, значения: {tab_info})", "FileProcessor", "prepare_summary_data")
                 
                 # Проверяем, что значения не пустые
-                if not tb_value and not gosb_value and not fio_value:
-                    self.logger.warning(f"ВНИМАНИЕ: Для табельного {tab_number_formatted} все значения (ТБ, ГОСБ, ФИО) пустые! tab_info={tab_info}", "FileProcessor", "prepare_summary_data")
+                if not tb_value and not fio_value:
+                    self.logger.warning(f"ВНИМАНИЕ: Для табельного {tab_number_formatted} все значения (ТБ, ФИО) пустые! tab_info={tab_info}", "FileProcessor", "prepare_summary_data")
             
             row = {
                 "Табельный": tab_number_formatted,
                 "ТБ": str(tb_value) if tb_value else "",
-                "ГОСБ": str(gosb_value) if gosb_value else "",
                 "ФИО": str(fio_value) if fio_value else ""
             }
             
@@ -2793,7 +2788,7 @@ class FileProcessor:
                         month_values[full_name] = value
                 
                 self.logger.debug_tab(
-                    f"Подготовка сводных данных для ТН: ТБ='{tb_value}', ГОСБ='{gosb_value}', ФИО='{fio_value}'. "
+                    f"Подготовка сводных данных для ТН: ТБ='{tb_value}', ФИО='{fio_value}'. "
                     f"Найдено значений по месяцам: {len(month_values)}. "
                     f"Детали: {dict(list(month_values.items())[:10])}",
                     tab_number=tab_number,
@@ -2810,9 +2805,8 @@ class FileProcessor:
         # ВАЖНО: Проверяем, что базовые колонки заполнены данными
         if len(result_df) > 0:
             sample_tb = result_df["ТБ"].iloc[0] if "ТБ" in result_df.columns else None
-            sample_gosb = result_df["ГОСБ"].iloc[0] if "ГОСБ" in result_df.columns else None
             sample_fio = result_df["ФИО"].iloc[0] if "ФИО" in result_df.columns else None
-            self.logger.debug(f"summary_df (result_df) создан: {len(result_df)} строк. Пример: ТБ='{sample_tb}', ГОСБ='{sample_gosb}', ФИО='{sample_fio}'", "FileProcessor", "prepare_summary_data")
+            self.logger.debug(f"summary_df (result_df) создан: {len(result_df)} строк. Пример: ТБ='{sample_tb}', ФИО='{sample_fio}'", "FileProcessor", "prepare_summary_data")
             
             # Проверяем, что не все значения пустые
             if "ТБ" in result_df.columns:
@@ -2872,13 +2866,12 @@ class FileProcessor:
                 # Проверяем, что базовые колонки не потерялись после drop_duplicates
                 if len(result_df) > 0:
                     sample_tb = result_df["ТБ"].iloc[0] if "ТБ" in result_df.columns else None
-                    sample_gosb = result_df["ГОСБ"].iloc[0] if "ГОСБ" in result_df.columns else None
                     sample_fio = result_df["ФИО"].iloc[0] if "ФИО" in result_df.columns else None
-                    self.logger.debug(f"После drop_duplicates: ТБ='{sample_tb}', ГОСБ='{sample_gosb}', ФИО='{sample_fio}'", "FileProcessor", "prepare_summary_data")
+                    self.logger.debug(f"После drop_duplicates: ТБ='{sample_tb}', ФИО='{sample_fio}'", "FileProcessor", "prepare_summary_data")
         
         # Упорядочиваем колонки: сначала базовые, потом по группам и месяцам
         self.logger.debug("Лист 'Данные': Упорядочивание колонок", "FileProcessor", "prepare_summary_data")
-        base_columns = ["Табельный", "ТБ", "ГОСБ", "ФИО"]
+        base_columns = ["Табельный", "ТБ", "ФИО"]
         data_columns = [full_name for _, _, full_name in all_files]
         ordered_columns = base_columns + data_columns
         
@@ -2894,7 +2887,7 @@ class FileProcessor:
         # ВАЖНО: Финальная проверка перед возвратом
         if len(result_df) > 0:
             # РАСШИРЕННОЕ ЛОГИРОВАНИЕ: Проверяем наличие базовых колонок
-            base_columns_check = ["Табельный", "ТБ", "ГОСБ", "ФИО"]
+            base_columns_check = ["Табельный", "ТБ", "ФИО"]
             missing_base = [col for col in base_columns_check if col not in result_df.columns]
             if missing_base:
                 self.logger.error(f"КРИТИЧЕСКАЯ ОШИБКА: В summary_df отсутствуют базовые колонки: {missing_base}. Доступные колонки: {list(result_df.columns)}", "FileProcessor", "prepare_summary_data")
@@ -2902,21 +2895,17 @@ class FileProcessor:
                 self.logger.debug(f"Проверка базовых колонок: все базовые колонки присутствуют в summary_df", "FileProcessor", "prepare_summary_data")
             
             sample_tb = result_df["ТБ"].iloc[0] if "ТБ" in result_df.columns else None
-            sample_gosb = result_df["ГОСБ"].iloc[0] if "ГОСБ" in result_df.columns else None
             sample_fio = result_df["ФИО"].iloc[0] if "ФИО" in result_df.columns else None
-            self.logger.debug(f"Финальный summary_df: {len(result_df)} строк x {len(result_df.columns)} колонок. Пример первой строки: ТБ='{sample_tb}', ГОСБ='{sample_gosb}', ФИО='{sample_fio}'", "FileProcessor", "prepare_summary_data")
+            self.logger.debug(f"Финальный summary_df: {len(result_df)} строк x {len(result_df.columns)} колонок. Пример первой строки: ТБ='{sample_tb}', ФИО='{sample_fio}'", "FileProcessor", "prepare_summary_data")
             
             # Проверяем, что не все значения пустые
             if "ТБ" in result_df.columns:
                 non_empty_tb = result_df["ТБ"].notna() & (result_df["ТБ"] != "")
-                non_empty_gosb = result_df["ГОСБ"].notna() & (result_df["ГОСБ"] != "") if "ГОСБ" in result_df.columns else pd.Series([False] * len(result_df))
                 non_empty_fio = result_df["ФИО"].notna() & (result_df["ФИО"] != "") if "ФИО" in result_df.columns else pd.Series([False] * len(result_df))
-                self.logger.debug(f"Финальная проверка заполненности: ТБ={non_empty_tb.sum()}/{len(result_df)}, ГОСБ={non_empty_gosb.sum()}/{len(result_df)}, ФИО={non_empty_fio.sum()}/{len(result_df)}", "FileProcessor", "prepare_summary_data")
+                self.logger.debug(f"Финальная проверка заполненности: ТБ={non_empty_tb.sum()}/{len(result_df)}, ФИО={non_empty_fio.sum()}/{len(result_df)}", "FileProcessor", "prepare_summary_data")
                 
                 if non_empty_tb.sum() == 0:
                     self.logger.warning(f"ВНИМАНИЕ: В summary_df все значения ТБ пустые!", "FileProcessor", "prepare_summary_data")
-                if non_empty_gosb.sum() == 0:
-                    self.logger.warning(f"ВНИМАНИЕ: В summary_df все значения ГОСБ пустые!", "FileProcessor", "prepare_summary_data")
                 if non_empty_fio.sum() == 0:
                     self.logger.warning(f"ВНИМАНИЕ: В summary_df все значения ФИО пустые!", "FileProcessor", "prepare_summary_data")
         
@@ -2943,7 +2932,7 @@ class FileProcessor:
         self.logger.info("=== Начало подготовки расчетных данных для листа 'Расчеты' ===", "FileProcessor", "prepare_calculated_data")
 
         # ВАЖНО: Базовые текстовые колонки, которые НЕ должны конвертироваться в числа
-        base_text_columns = ['Табельный', 'ТБ', 'ГОСБ', 'ФИО', 'ИНН']
+        base_text_columns = ['Табельный', 'ТБ', 'ФИО', 'ИНН']
 
         # ОПТИМИЗАЦИЯ: Кэш для номеров месяцев
         month_cache = {}
@@ -3010,7 +2999,7 @@ class FileProcessor:
                 return f"{period_part} [факт]"
         
         # Базовые колонки
-        base_columns = ["Табельный", "ТБ", "ГОСБ", "ФИО"]
+        base_columns = ["Табельный", "ТБ", "ФИО"]
         
         # РАСШИРЕННОЕ ЛОГИРОВАНИЕ: Проверяем, что базовые колонки есть в summary_df перед копированием
         if not all(col in summary_df.columns for col in base_columns):
@@ -3030,9 +3019,8 @@ class FileProcessor:
         # РАСШИРЕННОЕ ЛОГИРОВАНИЕ: Проверяем данные сразу после копирования, ДО конвертации
         if len(calculated_df) > 0:
             sample_tb_before = calculated_df["ТБ"].iloc[0] if "ТБ" in calculated_df.columns else None
-            sample_gosb_before = calculated_df["ГОСБ"].iloc[0] if "ГОСБ" in calculated_df.columns else None
             sample_fio_before = calculated_df["ФИО"].iloc[0] if "ФИО" in calculated_df.columns else None
-            self.logger.debug(f"calculated_df сразу после копирования (ДО конвертации): ТБ='{sample_tb_before}', ГОСБ='{sample_gosb_before}', ФИО='{sample_fio_before}'", "FileProcessor", "prepare_calculated_data")
+            self.logger.debug(f"calculated_df сразу после копирования (ДО конвертации): ТБ='{sample_tb_before}', ФИО='{sample_fio_before}'", "FileProcessor", "prepare_calculated_data")
         
         # ВАЖНО: Проверяем, что базовые колонки есть и не пустые в calculated_df
         if not all(col in calculated_df.columns for col in base_columns):
@@ -3054,15 +3042,13 @@ class FileProcessor:
         # РАСШИРЕННОЕ ЛОГИРОВАНИЕ: Проверяем, что данные не пустые
         if len(calculated_df) > 0:
             sample_tb = calculated_df["ТБ"].iloc[0] if "ТБ" in calculated_df.columns else None
-            sample_gosb = calculated_df["ГОСБ"].iloc[0] if "ГОСБ" in calculated_df.columns else None
             sample_fio = calculated_df["ФИО"].iloc[0] if "ФИО" in calculated_df.columns else None
-            self.logger.debug(f"calculated_df создан из summary_df: {len(calculated_df)} строк x {len(calculated_df.columns)} колонок. Пример: ТБ='{sample_tb}', ГОСБ='{sample_gosb}', ФИО='{sample_fio}'", "FileProcessor", "prepare_calculated_data")
+            self.logger.debug(f"calculated_df создан из summary_df: {len(calculated_df)} строк x {len(calculated_df.columns)} колонок. Пример: ТБ='{sample_tb}', ФИО='{sample_fio}'", "FileProcessor", "prepare_calculated_data")
             
             # Проверяем заполненность базовых колонок
             non_empty_tb = calculated_df["ТБ"].notna() & (calculated_df["ТБ"] != "") if "ТБ" in calculated_df.columns else pd.Series([False] * len(calculated_df))
-            non_empty_gosb = calculated_df["ГОСБ"].notna() & (calculated_df["ГОСБ"] != "") if "ГОСБ" in calculated_df.columns else pd.Series([False] * len(calculated_df))
             non_empty_fio = calculated_df["ФИО"].notna() & (calculated_df["ФИО"] != "") if "ФИО" in calculated_df.columns else pd.Series([False] * len(calculated_df))
-            self.logger.debug(f"Заполненность базовых колонок в calculated_df: ТБ={non_empty_tb.sum()}/{len(calculated_df)}, ГОСБ={non_empty_gosb.sum()}/{len(calculated_df)}, ФИО={non_empty_fio.sum()}/{len(calculated_df)}", "FileProcessor", "prepare_calculated_data")
+            self.logger.debug(f"Заполненность базовых колонок в calculated_df: ТБ={non_empty_tb.sum()}/{len(calculated_df)}, ФИО={non_empty_fio.sum()}/{len(calculated_df)}", "FileProcessor", "prepare_calculated_data")
         
         # Словарь для переименования колонок
         rename_dict = {}
@@ -3260,15 +3246,13 @@ class FileProcessor:
         # РАСШИРЕННОЕ ЛОГИРОВАНИЕ: Проверяем, что данные не пустые
         if len(calculated_df) > 0:
             sample_tb = calculated_df["ТБ"].iloc[0] if "ТБ" in calculated_df.columns else None
-            sample_gosb = calculated_df["ГОСБ"].iloc[0] if "ГОСБ" in calculated_df.columns else None
             sample_fio = calculated_df["ФИО"].iloc[0] if "ФИО" in calculated_df.columns else None
-            self.logger.debug(f"calculated_df после переименования: {len(calculated_df)} строк x {len(calculated_df.columns)} колонок. Пример: ТБ='{sample_tb}', ГОСБ='{sample_gosb}', ФИО='{sample_fio}'", "FileProcessor", "prepare_calculated_data")
+            self.logger.debug(f"calculated_df после переименования: {len(calculated_df)} строк x {len(calculated_df.columns)} колонок. Пример: ТБ='{sample_tb}', ФИО='{sample_fio}'", "FileProcessor", "prepare_calculated_data")
             
             # Проверяем заполненность базовых колонок после переименования
             non_empty_tb = calculated_df["ТБ"].notna() & (calculated_df["ТБ"] != "") if "ТБ" in calculated_df.columns else pd.Series([False] * len(calculated_df))
-            non_empty_gosb = calculated_df["ГОСБ"].notna() & (calculated_df["ГОСБ"] != "") if "ГОСБ" in calculated_df.columns else pd.Series([False] * len(calculated_df))
             non_empty_fio = calculated_df["ФИО"].notna() & (calculated_df["ФИО"] != "") if "ФИО" in calculated_df.columns else pd.Series([False] * len(calculated_df))
-            self.logger.debug(f"Заполненность базовых колонок после переименования: ТБ={non_empty_tb.sum()}/{len(calculated_df)}, ГОСБ={non_empty_gosb.sum()}/{len(calculated_df)}, ФИО={non_empty_fio.sum()}/{len(calculated_df)}", "FileProcessor", "prepare_calculated_data")
+            self.logger.debug(f"Заполненность базовых колонок после переименования: ТБ={non_empty_tb.sum()}/{len(calculated_df)}, ФИО={non_empty_fio.sum()}/{len(calculated_df)}", "FileProcessor", "prepare_calculated_data")
         
         # НЕ рассчитываем вертикальные ранги (убрано для варианта 3)
         # calculated_df = self._calculate_ranks(calculated_df, all_files_sorted, config_manager)
@@ -3407,7 +3391,7 @@ class FileProcessor:
         self.logger.info("=== Начало нормализации показателей (вариант 3) ===", "FileProcessor", "_normalize_indicators")
         
         # Базовые колонки
-        base_columns = ["Табельный", "ТБ", "ГОСБ", "ФИО"]
+        base_columns = ["Табельный", "ТБ", "ФИО"]
         
         # Группируем колонки по месяцам и группам
         month_data = {}  # {month: {"OD": col_name, "RA": col_name, "PS": col_name}}
@@ -3447,15 +3431,13 @@ class FileProcessor:
         # ВАЖНО: Проверяем, что данные не пустые
         if len(normalized_df) > 0:
             sample_tb = normalized_df["ТБ"].iloc[0] if "ТБ" in normalized_df.columns else None
-            sample_gosb = normalized_df["ГОСБ"].iloc[0] if "ГОСБ" in normalized_df.columns else None
             sample_fio = normalized_df["ФИО"].iloc[0] if "ФИО" in normalized_df.columns else None
-            self.logger.debug(f"normalized_df создан: {len(normalized_df)} строк x {len(normalized_df.columns)} колонок. Пример: ТБ='{sample_tb}', ГОСБ='{sample_gosb}', ФИО='{sample_fio}'", "FileProcessor", "_normalize_indicators")
+            self.logger.debug(f"normalized_df создан: {len(normalized_df)} строк x {len(normalized_df.columns)} колонок. Пример: ТБ='{sample_tb}', ФИО='{sample_fio}'", "FileProcessor", "_normalize_indicators")
             
             # Проверяем заполненность базовых колонок
             non_empty_tb = normalized_df["ТБ"].notna() & (normalized_df["ТБ"] != "") if "ТБ" in normalized_df.columns else pd.Series([False] * len(normalized_df))
-            non_empty_gosb = normalized_df["ГОСБ"].notna() & (normalized_df["ГОСБ"] != "") if "ГОСБ" in normalized_df.columns else pd.Series([False] * len(normalized_df))
             non_empty_fio = normalized_df["ФИО"].notna() & (normalized_df["ФИО"] != "") if "ФИО" in normalized_df.columns else pd.Series([False] * len(normalized_df))
-            self.logger.debug(f"Заполненность базовых колонок в normalized_df: ТБ={non_empty_tb.sum()}/{len(normalized_df)}, ГОСБ={non_empty_gosb.sum()}/{len(normalized_df)}, ФИО={non_empty_fio.sum()}/{len(normalized_df)}", "FileProcessor", "_normalize_indicators")
+            self.logger.debug(f"Заполненность базовых колонок в normalized_df: ТБ={non_empty_tb.sum()}/{len(normalized_df)}, ФИО={non_empty_fio.sum()}/{len(normalized_df)}", "FileProcessor", "_normalize_indicators")
         
         # Получаем направления для каждого показателя
         od_config = config_manager.get_group_config("OD").defaults if "OD" in config_manager.groups else None
@@ -3494,9 +3476,8 @@ class FileProcessor:
         # ВАЖНО: Финальная проверка перед возвратом
         if len(normalized_df) > 0:
             sample_tb = normalized_df["ТБ"].iloc[0] if "ТБ" in normalized_df.columns else None
-            sample_gosb = normalized_df["ГОСБ"].iloc[0] if "ГОСБ" in normalized_df.columns else None
             sample_fio = normalized_df["ФИО"].iloc[0] if "ФИО" in normalized_df.columns else None
-            self.logger.debug(f"normalized_df финальный: {len(normalized_df)} строк. Пример: ТБ='{sample_tb}', ГОСБ='{sample_gosb}', ФИО='{sample_fio}'", "FileProcessor", "_normalize_indicators")
+            self.logger.debug(f"normalized_df финальный: {len(normalized_df)} строк. Пример: ТБ='{sample_tb}', ФИО='{sample_fio}'", "FileProcessor", "_normalize_indicators")
         
         self.logger.info(f"Нормализация завершена: {len(normalized_df)} строк, {len(normalized_df.columns)} колонок", "FileProcessor", "_normalize_indicators")
         return normalized_df
@@ -3618,7 +3599,7 @@ class FileProcessor:
         weight_ps = ps_config.weight if ps_config else 0.34
         
         # Базовые колонки
-        base_columns = ["Табельный", "ТБ", "ГОСБ", "ФИО"]
+        base_columns = ["Табельный", "ТБ", "ФИО"]
         
         # Группируем колонки по месяцам
         month_data = {}  # {month: {"OD": col_name, "RA": col_name, "PS": col_name}}
@@ -3659,15 +3640,13 @@ class FileProcessor:
         # ВАЖНО: Проверяем, что данные не пустые
         if len(places_df) > 0:
             sample_tb = places_df["ТБ"].iloc[0] if "ТБ" in places_df.columns else None
-            sample_gosb = places_df["ГОСБ"].iloc[0] if "ГОСБ" in places_df.columns else None
             sample_fio = places_df["ФИО"].iloc[0] if "ФИО" in places_df.columns else None
-            self.logger.debug(f"places_df создан: {len(places_df)} строк. Пример: ТБ='{sample_tb}', ГОСБ='{sample_gosb}', ФИО='{sample_fio}'", "FileProcessor", "_calculate_best_month_variant3")
+            self.logger.debug(f"places_df создан: {len(places_df)} строк. Пример: ТБ='{sample_tb}', ФИО='{sample_fio}'", "FileProcessor", "_calculate_best_month_variant3")
         
         if len(final_df) > 0:
             sample_tb = final_df["ТБ"].iloc[0] if "ТБ" in final_df.columns else None
-            sample_gosb = final_df["ГОСБ"].iloc[0] if "ГОСБ" in final_df.columns else None
             sample_fio = final_df["ФИО"].iloc[0] if "ФИО" in final_df.columns else None
-            self.logger.debug(f"final_df создан: {len(final_df)} строк. Пример: ТБ='{sample_tb}', ГОСБ='{sample_gosb}', ФИО='{sample_fio}'", "FileProcessor", "_calculate_best_month_variant3")
+            self.logger.debug(f"final_df создан: {len(final_df)} строк. Пример: ТБ='{sample_tb}', ФИО='{sample_fio}'", "FileProcessor", "_calculate_best_month_variant3")
         
         # ОПТИМИЗАЦИЯ: Параллельный расчет Score для всех месяцев
         self.logger.debug(f"Параллельный расчет Score для всех месяцев (max_workers={MAX_WORKERS})", "FileProcessor", "_calculate_best_month_variant3")
@@ -4068,8 +4047,8 @@ class FileProcessor:
             header = ["Параметр"] + [f"M-{m}" for m in months]
             summary_data.append(header)
             
-            # Строка 1: Всего вариантов ТБ/ГОСБ
-            row = ["Всего вариантов ТБ/ГОСБ"]
+            # Строка 1: Всего вариантов ТБ
+            row = ["Всего вариантов ТБ"]
             for m in months:
                 file_name = month_files.get(m, "")
                 if file_name:
@@ -4229,7 +4208,7 @@ class ExcelFormatter:
         Используется только openpyxl
         
         Создает 6 основных листов + лист "Статистика" (если включен):
-        1. "RAW" - сырые данные после фильтрации (уникальные комбинации ТН+ФИО+ТБ+ГОСБ+ИНН с суммами по файлам)
+        1. "RAW" - сырые данные после фильтрации (уникальные комбинации ТН+ФИО+ТБ+ИНН с суммами по файлам)
         2. "Исходник" - исходные отфильтрованные данные
         3. "Расчет" - расчетные данные (факт, прирост по 2м, прирост по 3м)
         4. "Нормализация" - нормализованные значения показателей
@@ -4250,7 +4229,7 @@ class ExcelFormatter:
         self.logger.info(f"Создание форматированного Excel файла {output_path}")
         
         # РАСШИРЕННОЕ ЛОГИРОВАНИЕ: Проверяем наличие базовых колонок во всех DataFrame перед сохранением
-        base_columns = ["Табельный", "ТБ", "ГОСБ", "ФИО"]
+        base_columns = ["Табельный", "ТБ", "ФИО"]
         
         for df_name, df in [("summary_df (Исходник)", summary_df), 
                             ("calculated_df (Расчет)", calculated_df),
@@ -4457,7 +4436,7 @@ class ExcelFormatter:
         
         # ОПТИМИЗАЦИЯ: Настраиваем выравнивание и форматирование для всех ячеек (батчами)
         # Определяем базовые колонки (текстовые)
-        base_columns = ["Табельный", "ТБ", "ГОСБ", "ФИО"]
+        base_columns = ["Табельный", "ТБ", "ФИО"]
         
         # Формат для чисел: разделитель разрядов и два знака после запятой
         number_format = "#,##0.00"
