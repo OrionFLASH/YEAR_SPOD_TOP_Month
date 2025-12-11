@@ -1077,6 +1077,10 @@ class FileProcessor:
         if len(all_tab_numbers) > 0:
             stats_parts.append(f"{len(all_tab_numbers)} уникальных табельных номеров")
         
+        # Сохраняем статистику по клиентам
+        if ENABLE_STATISTICS:
+            self.statistics["summary"]["total_clients"] = len(all_client_ids)
+        
         self.logger.info(f"Загрузка завершена. Обработано групп: {len(self.processed_files)}. Итого: {', '.join(stats_parts)}", "FileProcessor", "load_all_files")
     
     def _normalize_tab_number(self, value: Any, length: int, fill_char: str) -> str:
@@ -1981,8 +1985,11 @@ class FileProcessor:
             month_cache[file_name] = 0
             return 0
         
-        # Обрабатываем все файлы
-        for group in self.groups:
+        # Обрабатываем все файлы в правильном порядке: OD, RA, PS
+        group_order = {"OD": 1, "RA": 2, "PS": 3}
+        groups_sorted = sorted(self.groups, key=lambda g: group_order.get(g, 999))
+        
+        for group in groups_sorted:
             if group not in self.processed_files:
                 continue
             
@@ -2041,6 +2048,32 @@ class FileProcessor:
         # ОПТИМИЗАЦИЯ: Используем pivot_table для создания сводной таблицы (быстрее чем циклы)
         base_cols = ["Табельный", "ФИО", "ТБ", "ГОСБ", "ИНН"]
         
+        # Функция для сортировки колонок: сначала по группе (OD, RA, PS), затем по номеру месяца
+        def sort_column_key(col_name: str) -> tuple:
+            """
+            Функция для сортировки колонок: сначала по группе (OD, RA, PS), затем по номеру месяца.
+            
+            Returns:
+                tuple: (приоритет_группы, номер_месяца) для сортировки
+            """
+            # Базовые колонки идут первыми
+            if col_name in base_cols:
+                return (-1, 0)
+            
+            # Парсим название колонки: "OD (M-1)", "RA (M-12)" и т.д.
+            match = re.search(r'^([A-Z]+)\s+\(M-(\d{1,2})\)', col_name)
+            if match:
+                group = match.group(1)
+                month = int(match.group(2))
+                
+                # Приоритет групп: OD=1, RA=2, PS=3
+                group_priority = {"OD": 1, "RA": 2, "PS": 3}.get(group, 999)
+                
+                return (group_priority, month)
+            
+            # Если не удалось распарсить, идем в конец
+            return (999, 999)
+        
         # Используем pivot_table для создания сводной таблицы
         # Индекс - базовые колонки, колонки - файлы, значения - показатели
         try:
@@ -2081,14 +2114,21 @@ class FileProcessor:
                 result_data.append(row)
             
             raw_pivot_df = pd.DataFrame(result_data)
+            
+            # Применяем правильную сортировку колонок и для альтернативного метода
+            indicator_cols_alt = [col for col in raw_pivot_df.columns if col not in base_cols]
+            indicator_cols_sorted_alt = sorted(indicator_cols_alt, key=sort_column_key)
+            all_cols_alt = base_cols + indicator_cols_sorted_alt
+            raw_pivot_df = raw_pivot_df[all_cols_alt]
         
         # Заполняем NaN нулями
         indicator_cols = [col for col in raw_pivot_df.columns if col not in base_cols]
         if indicator_cols:
             raw_pivot_df[indicator_cols] = raw_pivot_df[indicator_cols].fillna(0)
         
-        # Упорядочиваем колонки: базовые, затем по группам и месяцам
-        all_cols = base_cols + sorted([col for col in raw_pivot_df.columns if col not in base_cols])
+        # Сортируем колонки по приоритету группы и номеру месяца
+        indicator_cols_sorted = sorted(indicator_cols, key=sort_column_key)
+        all_cols = base_cols + indicator_cols_sorted
         raw_pivot_df = raw_pivot_df[all_cols]
         
         self.logger.info(f"Лист 'RAW': Подготовлено {len(raw_pivot_df)} уникальных комбинаций", "FileProcessor", "prepare_raw_data")
@@ -2249,20 +2289,22 @@ class FileProcessor:
             # Количество КМ (табельных номеров)
             self.statistics["summary"]["total_km"] = len(result_df)
             
-            # Количество уникальных клиентов
-            if "ID_Clients" in result_df.columns:
-                unique_clients = result_df["ID_Clients"].nunique()
-                self.statistics["summary"]["total_clients"] = unique_clients
+            # Количество уникальных клиентов (уже сохранено при загрузке файлов)
+            # Если не было сохранено, пытаемся получить из result_df
+            if "total_clients" not in self.statistics["summary"] or self.statistics["summary"]["total_clients"] == 0:
+                if "ИНН" in result_df.columns:
+                    unique_clients = result_df["ИНН"].nunique()
+                    self.statistics["summary"]["total_clients"] = unique_clients
+                elif "ID_Clients" in result_df.columns:
+                    unique_clients = result_df["ID_Clients"].nunique()
+                    self.statistics["summary"]["total_clients"] = unique_clients
             
             # Количество КМ по ТБ
             if "ТБ" in result_df.columns:
                 by_tb = result_df["ТБ"].value_counts().to_dict()
                 self.statistics["summary"]["by_tb"] = by_tb
             
-            # Количество КМ по ГОСБ
-            if "ГОСБ" in result_df.columns:
-                by_gosb = result_df["ГОСБ"].value_counts().to_dict()
-                self.statistics["summary"]["by_gosb"] = by_gosb
+            # Количество КМ по ГОСБ - убрано по требованию (считаем только по ТБ)
         
         # Нормализуем табельные номера и ИНН в выходных данных
         # Получаем параметры нормализации из первой группы (все группы должны иметь одинаковые параметры)
@@ -2985,7 +3027,47 @@ class FileProcessor:
         # Создаем маску для месяцев с рангом 1 (заполняем NaN как False)
         rank_1_mask = (rank_df == 1).fillna(False)
         
-        # Для каждого КМ собираем месяцы с рангом 1
+        def get_month_values(month: int, idx: int) -> tuple:
+            """Получает значения OD, RA, PS для указанного месяца и индекса."""
+            od_val = None
+            ra_val = None
+            ps_val = None
+            
+            od_col = month_data[month].get("OD")
+            ra_col = month_data[month].get("RA")
+            ps_col = month_data[month].get("PS")
+            
+            if od_col and od_col in calculated_df.columns:
+                od_val = calculated_df.loc[idx, od_col]
+            if ra_col and ra_col in calculated_df.columns:
+                ra_val = calculated_df.loc[idx, ra_col]
+            if ps_col and ps_col in calculated_df.columns:
+                ps_val = calculated_df.loc[idx, ps_col]
+            
+            return (od_val, ra_val, ps_val)
+        
+        def find_consecutive_groups(months: List[int]) -> List[List[int]]:
+            """Находит группы подряд идущих месяцев."""
+            if not months:
+                return []
+            
+            sorted_months = sorted(months)
+            groups = []
+            current_group = [sorted_months[0]]
+            
+            for i in range(1, len(sorted_months)):
+                if sorted_months[i] == sorted_months[i-1] + 1:
+                    # Подряд идущий месяц
+                    current_group.append(sorted_months[i])
+                else:
+                    # Разрыв в последовательности
+                    groups.append(current_group)
+                    current_group = [sorted_months[i]]
+            
+            groups.append(current_group)
+            return groups
+        
+        # Для каждого КМ собираем месяцы с рангом 1 и обрабатываем их
         for idx in calculated_df.index:
             best_months = []
             for month in sorted(month_data.keys()):
@@ -2994,21 +3076,69 @@ class FileProcessor:
                     if rank_1_mask.loc[idx, col_name]:
                         best_months.append(month)
             
-            if best_months:
-                best_month_series.loc[idx] = ", ".join([str(m) for m in sorted(best_months)])
-                
-                # Добавляем значения показателей лучшего месяца в final_df
-                best_month = best_months[0]  # Берем первый, если несколько
-                od_col = month_data[best_month].get("OD")
-                ra_col = month_data[best_month].get("RA")
-                ps_col = month_data[best_month].get("PS")
-                
-                if od_col and od_col in calculated_df.columns:
-                    final_df.loc[idx, "OD (лучший месяц)"] = calculated_df.loc[idx, od_col]
-                if ra_col and ra_col in calculated_df.columns:
-                    final_df.loc[idx, "RA (лучший месяц)"] = calculated_df.loc[idx, ra_col]
-                if ps_col and ps_col in calculated_df.columns:
-                    final_df.loc[idx, "PS (лучший месяц)"] = calculated_df.loc[idx, ps_col]
+            if not best_months:
+                continue
+            
+            # Если только один месяц - просто добавляем его
+            if len(best_months) == 1:
+                best_month_series.loc[idx] = str(best_months[0])
+                continue
+            
+            # Если несколько месяцев - проверяем значения и группируем
+            # Создаем словарь: месяц -> (OD, RA, PS)
+            month_values = {}
+            for month in best_months:
+                month_values[month] = get_month_values(month, idx)
+            
+            # Находим группы подряд идущих месяцев
+            consecutive_groups = find_consecutive_groups(best_months)
+            
+            # Для каждой группы проверяем, одинаковые ли значения
+            selected_months = []
+            
+            for group in consecutive_groups:
+                if len(group) == 1:
+                    # Один месяц - добавляем его
+                    selected_months.append(group[0])
+                else:
+                    # Несколько месяцев - проверяем, одинаковые ли значения
+                    first_month_values = month_values[group[0]]
+                    all_same = True
+                    
+                    for month in group[1:]:
+                        current_values = month_values[month]
+                        # Сравниваем значения с учетом NaN и float (численное сравнение)
+                        try:
+                            # Проверяем OD
+                            od_eq = (pd.isna(first_month_values[0]) and pd.isna(current_values[0])) or \
+                                    (not pd.isna(first_month_values[0]) and not pd.isna(current_values[0]) and 
+                                     abs(float(first_month_values[0]) - float(current_values[0])) < 1e-10)
+                            # Проверяем RA
+                            ra_eq = (pd.isna(first_month_values[1]) and pd.isna(current_values[1])) or \
+                                    (not pd.isna(first_month_values[1]) and not pd.isna(current_values[1]) and 
+                                     abs(float(first_month_values[1]) - float(current_values[1])) < 1e-10)
+                            # Проверяем PS
+                            ps_eq = (pd.isna(first_month_values[2]) and pd.isna(current_values[2])) or \
+                                    (not pd.isna(first_month_values[2]) and not pd.isna(current_values[2]) and 
+                                     abs(float(first_month_values[2]) - float(current_values[2])) < 1e-10)
+                            
+                            if not (od_eq and ra_eq and ps_eq):
+                                all_same = False
+                                break
+                        except (ValueError, TypeError):
+                            # Если не удалось сравнить как числа - считаем разными
+                            all_same = False
+                            break
+                    
+                    if all_same:
+                        # Все значения одинаковые - берем только первый месяц
+                        selected_months.append(group[0])
+                    else:
+                        # Значения разные - добавляем все месяцы
+                        selected_months.extend(group)
+            
+            # Формируем строку с выбранными месяцами
+            best_month_series.loc[idx] = ", ".join([str(m) for m in sorted(selected_months)])
         
         # Добавляем колонку "Лучший месяц" в places_df и final_df
         places_df["Лучший месяц"] = best_month_series
@@ -3048,81 +3178,189 @@ class FileProcessor:
                 summary_data.append([tb, count])
             summary_data.append(["", ""])  # Пустая строка для разделения
         
-        # Таблица 3: Количество КМ по ГОСБ
-        if "by_gosb" in self.statistics["summary"]:
-            summary_data.append(["Количество КМ по ГОСБ", ""])
-            summary_data.append(["ГОСБ", "Количество КМ"])
-            for gosb, count in sorted(self.statistics["summary"]["by_gosb"].items(), key=lambda x: x[1], reverse=True):
-                summary_data.append([gosb, count])
+        # Таблица 3: Статистика обработки файлов (разделена по группам OD, RA, PS)
+        # Функция для извлечения номера месяца из имени файла
+        def extract_month_number(file_name: str) -> int:
+            """Извлекает номер месяца из имени файла (M-1, M-2, ..., M-12)."""
+            match = re.search(r'M-(\d{1,2})_', file_name)
+            if match:
+                month = int(match.group(1))
+                if 1 <= month <= 12:
+                    return month
+            return 0
+        
+        # Создаем развернутые таблицы для каждой группы
+        for group in ["OD", "RA", "PS"]:
+            if group not in self.statistics["files"]:
+                continue
+            
+            summary_data.append([f"Статистика обработки файлов - {group}", ""])
+            
+            # Собираем данные по месяцам
+            months = list(range(1, 13))  # M-1 до M-12
+            month_files = {}  # {month: file_name}
+            file_data = {}  # {file_name: {initial, dropped, kept, final, drop_rules: {}, in_rules: {}}}
+            
+            for file_name in sorted(self.statistics["files"][group].keys()):
+                month = extract_month_number(file_name)
+                if month > 0:
+                    month_files[month] = file_name
+                    file_stats = self.statistics["files"][group][file_name]
+                    file_data[file_name] = {
+                        "initial": file_stats.get("initial_rows", 0),
+                        "final": file_stats.get("final_rows", 0),
+                        "dropped": sum(file_stats.get("dropped_by_rule", {}).values()),
+                        "kept": sum(file_stats.get("kept_by_rule", {}).values()),
+                        "drop_rules": file_stats.get("dropped_by_rule", {}),
+                        "in_rules": file_stats.get("kept_by_rule", {})
+                    }
+            
+            # Создаем заголовки: строка данных, M-1, M-2, ..., M-12
+            header = ["Параметр"] + [f"M-{m}" for m in months]
+            summary_data.append(header)
+            
+            # Строка 1: Исходно строк
+            row = ["Исходно строк"]
+            for m in months:
+                file_name = month_files.get(m, "")
+                if file_name:
+                    row.append(file_data[file_name]["initial"])
+                else:
+                    row.append("")
+            summary_data.append(row)
+            
+            # Строка 2: Удалено по drop_rules (всего)
+            row = ["Удалено по drop_rules (всего)"]
+            for m in months:
+                file_name = month_files.get(m, "")
+                if file_name:
+                    row.append(file_data[file_name]["dropped"])
+                else:
+                    row.append("")
+            summary_data.append(row)
+            
+            # Строка 3: Оставлено по in_rules (всего)
+            row = ["Оставлено по in_rules (всего)"]
+            for m in months:
+                file_name = month_files.get(m, "")
+                if file_name:
+                    row.append(file_data[file_name]["kept"])
+                else:
+                    row.append("")
+            summary_data.append(row)
+            
+            # Строка 4: Итогово строк
+            row = ["Итогово строк"]
+            for m in months:
+                file_name = month_files.get(m, "")
+                if file_name:
+                    row.append(file_data[file_name]["final"])
+                else:
+                    row.append("")
+            summary_data.append(row)
+            
+            # Детальная статистика по drop_rules
+            # Собираем все уникальные правила drop_rules
+            all_drop_rules = set()
+            for file_name in file_data.keys():
+                all_drop_rules.update(file_data[file_name]["drop_rules"].keys())
+            
+            if all_drop_rules:
+                summary_data.append(["", ""])  # Пустая строка
+                summary_data.append(["Детальная статистика по drop_rules", ""])
+                summary_data.append(header)
+                
+                for rule in sorted(all_drop_rules):
+                    row = [f"Удалено: {rule}"]
+                    for m in months:
+                        file_name = month_files.get(m, "")
+                        if file_name and rule in file_data[file_name]["drop_rules"]:
+                            row.append(file_data[file_name]["drop_rules"][rule])
+                        else:
+                            row.append("")
+                    summary_data.append(row)
+            
+            # Детальная статистика по in_rules
+            # Собираем все уникальные правила in_rules
+            all_in_rules = set()
+            for file_name in file_data.keys():
+                all_in_rules.update(file_data[file_name]["in_rules"].keys())
+            
+            if all_in_rules:
+                summary_data.append(["", ""])  # Пустая строка
+                summary_data.append(["Детальная статистика по in_rules", ""])
+                summary_data.append(header)
+                
+                for rule in sorted(all_in_rules):
+                    row = [f"Оставлено: {rule}"]
+                    for m in months:
+                        file_name = month_files.get(m, "")
+                        if file_name and rule in file_data[file_name]["in_rules"]:
+                            row.append(file_data[file_name]["in_rules"][rule])
+                        else:
+                            row.append("")
+                    summary_data.append(row)
+            
             summary_data.append(["", ""])  # Пустая строка для разделения
         
-        # Таблица 4: Статистика по файлам (исходные строки, удалено, оставлено)
-        summary_data.append(["Статистика обработки файлов", ""])
-        summary_data.append(["Группа", "Файл", "Исходно строк", "Удалено по drop_rules", "Оставлено по in_rules", "Итогово строк"])
-        
-        total_initial = 0
-        total_dropped = 0
-        total_final = 0
-        
-        for group in sorted(self.statistics["files"].keys()):
-            for file_name in sorted(self.statistics["files"][group].keys()):
-                file_stats = self.statistics["files"][group][file_name]
-                initial = file_stats.get("initial_rows", 0)
-                final = file_stats.get("final_rows", 0)
-                dropped_count = sum(file_stats.get("dropped_by_rule", {}).values())
-                kept_count = sum(file_stats.get("kept_by_rule", {}).values())
-                
-                summary_data.append([group, file_name, initial, dropped_count, kept_count, final])
-                
-                total_initial += initial
-                total_dropped += dropped_count
-                total_final += final
-        
-        summary_data.append(["ИТОГО", "", total_initial, total_dropped, "", total_final])
-        summary_data.append(["", ""])  # Пустая строка для разделения
-        
-        # Таблица 5: Детальная статистика по drop_rules
-        summary_data.append(["Детальная статистика по drop_rules", ""])
-        summary_data.append(["Группа", "Файл", "Правило", "Удалено строк"])
-        
-        for group in sorted(self.statistics["files"].keys()):
-            for file_name in sorted(self.statistics["files"][group].keys()):
-                file_stats = self.statistics["files"][group][file_name]
-                dropped_by_rule = file_stats.get("dropped_by_rule", {})
-                for rule, count in sorted(dropped_by_rule.items(), key=lambda x: x[1], reverse=True):
-                    if count > 0:
-                        summary_data.append([group, file_name, rule, count])
-        
-        summary_data.append(["", ""])  # Пустая строка для разделения
-        
-        # Таблица 6: Детальная статистика по in_rules
-        summary_data.append(["Детальная статистика по in_rules", ""])
-        summary_data.append(["Группа", "Файл", "Правило", "Оставлено строк"])
-        
-        for group in sorted(self.statistics["files"].keys()):
-            for file_name in sorted(self.statistics["files"][group].keys()):
-                file_stats = self.statistics["files"][group][file_name]
-                kept_by_rule = file_stats.get("kept_by_rule", {})
-                for rule, count in sorted(kept_by_rule.items(), key=lambda x: x[1], reverse=True):
-                    if count > 0:
-                        summary_data.append([group, file_name, rule, count])
-        
-        summary_data.append(["", ""])  # Пустая строка для разделения
-        
-        # Таблица 7: Статистика выбора табельных номеров
-        summary_data.append(["Статистика выбора табельных номеров", ""])
-        summary_data.append(["Группа", "Файл", "Всего вариантов ТБ/ГОСБ", "Выбрано уникальных", "Табельных с несколькими вариантами"])
-        
-        for group in sorted(self.statistics["tab_selection"].keys()):
+        # Таблица 4: Статистика выбора табельных номеров (разделена по группам)
+        for group in ["OD", "RA", "PS"]:
+            if group not in self.statistics["tab_selection"]:
+                continue
+            
+            summary_data.append([f"Статистика выбора табельных номеров - {group}", ""])
+            
+            # Собираем данные по месяцам
+            months = list(range(1, 13))  # M-1 до M-12
+            month_files = {}  # {month: file_name}
+            tab_data = {}  # {file_name: {total_variants, selected_count, variants_with_multiple}}
+            
             for file_name in sorted(self.statistics["tab_selection"][group].keys()):
-                tab_stats = self.statistics["tab_selection"][group][file_name]
-                summary_data.append([
-                    group,
-                    file_name,
-                    tab_stats.get("total_variants", 0),
-                    tab_stats.get("selected_count", 0),
-                    tab_stats.get("variants_with_multiple", 0)
-                ])
+                month = extract_month_number(file_name)
+                if month > 0:
+                    month_files[month] = file_name
+                    tab_stats = self.statistics["tab_selection"][group][file_name]
+                    tab_data[file_name] = {
+                        "total_variants": tab_stats.get("total_variants", 0),
+                        "selected_count": tab_stats.get("selected_count", 0),
+                        "variants_with_multiple": tab_stats.get("variants_with_multiple", 0)
+                    }
+            
+            # Создаем заголовки: строка данных, M-1, M-2, ..., M-12
+            header = ["Параметр"] + [f"M-{m}" for m in months]
+            summary_data.append(header)
+            
+            # Строка 1: Всего вариантов ТБ/ГОСБ
+            row = ["Всего вариантов ТБ/ГОСБ"]
+            for m in months:
+                file_name = month_files.get(m, "")
+                if file_name:
+                    row.append(tab_data[file_name]["total_variants"])
+                else:
+                    row.append("")
+            summary_data.append(row)
+            
+            # Строка 2: Выбрано уникальных
+            row = ["Выбрано уникальных"]
+            for m in months:
+                file_name = month_files.get(m, "")
+                if file_name:
+                    row.append(tab_data[file_name]["selected_count"])
+                else:
+                    row.append("")
+            summary_data.append(row)
+            
+            # Строка 3: Табельных с несколькими вариантами
+            row = ["Табельных с несколькими вариантами"]
+            for m in months:
+                file_name = month_files.get(m, "")
+                if file_name:
+                    row.append(tab_data[file_name]["variants_with_multiple"])
+                else:
+                    row.append("")
+            summary_data.append(row)
+            
+            summary_data.append(["", ""])  # Пустая строка для разделения
         
         # Создаем DataFrame
         if len(summary_data) > 0:
