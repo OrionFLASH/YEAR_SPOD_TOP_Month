@@ -305,14 +305,14 @@ class ConfigManager:
                     {"alias": "indicator", "source": "Факт"}
                 ],
                 # ВАРИАНТ КОЛОНОК ДЛЯ ПРОМ ДАННЫХ (закомментировано, раскомментировать для пром данных):
-                # columns=[
-                #     {"alias": "tab_number", "source": "Таб (8)"},
-                #     {"alias": "tb", "source": "ТБ"},
-                #     {"alias": "gosb", "source": "ГОСБ"},
-                #     {"alias": "client_id", "source": "ИНН"},
-                #     {"alias": "fio", "source": "КМ"},
-                #     {"alias": "indicator", "source": "2025, руб."}
-                # ],
+                #columns=[
+                #    {"alias": "tab_number", "source": "Таб (8)"},
+                #    {"alias": "tb", "source": "ТБ"},
+                #    {"alias": "gosb", "source": "ГОСБ"},
+                #    {"alias": "client_id", "source": "ИНН"},
+                #    {"alias": "fio", "source": "КМ"},
+                #    {"alias": "indicator", "source": "2025, руб."}
+                #],
                 
                 # Правила удаления строк по умолчанию (drop_rules)
                 # Формат: [DropRule(alias="...", values=[...], ...), ...]
@@ -326,7 +326,7 @@ class ConfigManager:
                 #   DropRule(alias="status", values=["Удален", "Архив"], remove_unconditionally=True, check_by_inn=False, check_by_tn=False)
                 #   DropRule(alias="tb", values=["ЦА"], remove_unconditionally=True, check_by_inn=True, check_by_tn=False)
                 drop_rules=[
-                    # DropRule(alias="status", values=["Удален", "Архив"], remove_unconditionally=True, check_by_inn=False, check_by_tn=False),
+                    DropRule(alias="status", values=["Удален", "Архив"], remove_unconditionally=True, check_by_inn=False, check_by_tn=False),
                     DropRule(alias="fio", values=["Серая зона"], remove_unconditionally=True,
                              check_by_inn=False, check_by_tn=False),
                     DropRule(alias="client_id", values=["НЕ ОПРЕДЕЛЕН"], remove_unconditionally=True,
@@ -371,7 +371,7 @@ class ConfigManager:
                 #   3 - "Прирост по трем периодам": М-N = М-N - 2*М-(N-1) + М-(N-2)
                 #      Пример: М-3 = М-3 - 2*М-2 + М-1
                 #      Пример: М-4 = М-4 - 2*М-3 + М-2
-                calculation_type=3,
+                calculation_type=2,
                 
                 # Значение для первого месяца при расчете типа 2 (first_month_value):
                 #   "self" - первый месяц равен самому себе (сумме по этому ТН в этом месяце)
@@ -420,12 +420,58 @@ class ConfigManager:
                 FileItem(key="RA_12", label="RA Декабрь", file_name="M-12_RA.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}, calculation_type=None, first_month_value=None, three_periods_first_months=None),
             ],
             defaults=DefaultsConfig(
-                columns=[{"alias": "tab_number", "source": "Табельный номер"}, {"alias": "tb", "source": "Короткое ТБ"}, {"alias": "gosb", "source": "Полное ГОСБ"}, {"alias": "client_id", "source": "ИНН"}, {"alias": "fio", "source": "ФИО"}, {"alias": "indicator", "source": "Факт"}],
-                drop_rules=[], in_rules=[],
+                # Колонки по умолчанию: маппинг source (имя в Excel) -> alias (внутреннее имя)
+                # Формат: [{"alias": "внутреннее_имя", "source": "Имя в Excel"}, ...]
+                # Примеры:
+                #   {"alias": "tab_number", "source": "Табельный номер"}
+                #   {"alias": "tb", "source": "Короткое ТБ"}
+                #   {"alias": "indicator", "source": "Факт"}
+                columns=[
+                    {"alias": "tab_number", "source": "Табельный номер"},
+                    {"alias": "tb", "source": "Короткое ТБ"},
+                    {"alias": "gosb", "source": "Полное ГОСБ"},
+                    {"alias": "client_id", "source": "ИНН"},
+                    {"alias": "fio", "source": "ФИО"},
+                    {"alias": "indicator", "source": "Факт"}
+                ],
+                # ВАРИАНТ КОЛОНОК ДЛЯ ПРОМ ДАННЫХ (закомментировано, раскомментировать для пром данных):
+                #columns=[
+                #    {"alias": "tab_number", "source": "Таб. номер ВКО"},
+                #    {"alias": "tb", "source": "ТБ"},
+                #    {"alias": "gosb", "source": "ГОСБ"},
+                #    {"alias": "client_id", "source": "ИНН"},
+                #    {"alias": "fio", "source": "ВКО"},
+                #    {"alias": "indicator", "source": "СО РА (M). план курс"}
+                #],
+                # Правила удаления строк по умолчанию (drop_rules)
+                # Формат: [DropRule(alias="...", values=[...], ...), ...]
+                # Параметры DropRule:
+                #   - alias: имя поля после маппинга (из columns)
+                #   - values: список запрещенных значений
+                #   - remove_unconditionally: True - удалять всегда, False - не удалять
+                #   - check_by_inn: True - не удалять, если по ИНН есть другие значения
+                #   - check_by_tn: True - не удалять, если по ТН есть другие значения
+                # Примеры:
+                #   DropRule(alias="status", values=["Удален", "Архив"], remove_unconditionally=True, check_by_inn=False, check_by_tn=False)
+                #   DropRule(alias="tb", values=["ЦА"], remove_unconditionally=True, check_by_inn=True, check_by_tn=False)
+                drop_rules=[
+                    DropRule(alias="status", values=["Удален", "Архив"], remove_unconditionally=True, check_by_inn=False, check_by_tn=False),
+                    DropRule(alias="tb", values=["ЦА"], remove_unconditionally=True,
+                             check_by_inn=False, check_by_tn=False),
+                    DropRule(alias="gosb", values=["9999"], remove_unconditionally=True,
+                             check_by_inn=False, check_by_tn=False),
+                    DropRule(alias="client_id", values=["0"], remove_unconditionally=True,
+                             check_by_inn=False, check_by_tn=False),
+                    DropRule(alias="fio", values=["-"], remove_unconditionally=True,
+                             check_by_inn=False, check_by_tn=False),
+                    DropRule(alias="tab_number", values=["-", "Tech_Sib"], remove_unconditionally=True,
+                             check_by_inn=False, check_by_tn=False),
+                ],
+                in_rules=[],
                 tab_number_column="tab_number", tb_column="tb", gosb_column="gosb", fio_column="fio", indicator_column="indicator",
                 header_row=0, skip_rows=0, skip_footer=0, sheet_name=None, sheet_index=None,
-                calculation_type=2, first_month_value="self", three_periods_first_months="self_first_diff_second",
-                indicator_direction="MIN", weight=0.33
+                calculation_type=1, first_month_value="self", three_periods_first_months="self_first_diff_second",
+                indicator_direction="MAX", weight=0.33
             )
         )
         
@@ -456,18 +502,42 @@ class ConfigManager:
                 FileItem(key="PS_12", label="PS Декабрь", file_name="M-12_PS.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}, calculation_type=None, first_month_value=None, three_periods_first_months=None),
             ],
             defaults=DefaultsConfig(
-                columns=[{"alias": "tab_number", "source": "Табельный номер"}, {"alias": "tb", "source": "Короткое ТБ"}, {"alias": "gosb", "source": "Полное ГОСБ"}, {"alias": "client_id", "source": "ИНН"}, {"alias": "fio", "source": "ФИО"}, {"alias": "indicator", "source": "Факт"}],
+                # Колонки по умолчанию: маппинг source (имя в Excel) -> alias (внутреннее имя)
+                # Формат: [{"alias": "внутреннее_имя", "source": "Имя в Excel"}, ...]
+                # Примеры:
+                #   {"alias": "tab_number", "source": "Табельный номер"}
+                #   {"alias": "tb", "source": "Короткое ТБ"}
+                #   {"alias": "indicator", "source": "Факт"}
+                columns=[
+                    {"alias": "tab_number", "source": "Табельный номер"},
+                    {"alias": "tb", "source": "Короткое ТБ"},
+                    {"alias": "gosb", "source": "Полное ГОСБ"},
+                    {"alias": "client_id", "source": "ИНН"},
+                    {"alias": "fio", "source": "ФИО"},
+                    {"alias": "indicator", "source": "Факт"}
+                ],
                 # ВАРИАНТ КОЛОНОК ДЛЯ ПРОМ ДАННЫХ (закомментировано, раскомментировать для пром данных):
-                # columns=[
-                #     {"alias": "tab_number", "source": "Табельный номер ВКО"},
-                #     {"alias": "tb", "source": "ТБ"},
-                #     {"alias": "gosb", "source": "ГОСБ"},
-                #     {"alias": "client_id", "source": "ИНН"},
-                #     {"alias": "fio", "source": "ВКО"},
-                #     {"alias": "indicator", "source": "СО за месяц, план курс"}
-                # ],
+                #columns=[
+                #    {"alias": "tab_number", "source": "Табельный номер ВКО"},
+                #    {"alias": "tb", "source": "ТБ"},
+                #    {"alias": "gosb", "source": "ГОСБ"},
+                #    {"alias": "client_id", "source": "ИНН"},
+                #    {"alias": "fio", "source": "ВКО"},
+                #    {"alias": "indicator", "source": "СО за месяц, план курс"}
+                #],
+                # Правила удаления строк по умолчанию (drop_rules)
+                # Формат: [DropRule(alias="...", values=[...], ...), ...]
+                # Параметры DropRule:
+                #   - alias: имя поля после маппинга (из columns)
+                #   - values: список запрещенных значений
+                #   - remove_unconditionally: True - удалять всегда, False - не удалять
+                #   - check_by_inn: True - не удалять, если по ИНН есть другие значения
+                #   - check_by_tn: True - не удалять, если по ТН есть другие значения
+                # Примеры:
+                #   DropRule(alias="status", values=["Удален", "Архив"], remove_unconditionally=True, check_by_inn=False, check_by_tn=False)
+                #   DropRule(alias="tb", values=["ЦА"], remove_unconditionally=True, check_by_inn=True, check_by_tn=False)
                 drop_rules=[
-                    # DropRule(alias="status", values=["Удален", "Архив"], remove_unconditionally=True, check_by_inn=False, check_by_tn=False),
+                    DropRule(alias="status", values=["Удален", "Архив"], remove_unconditionally=True, check_by_inn=False, check_by_tn=False),
                     DropRule(alias="tb", values=["ЦА"], remove_unconditionally=True,
                              check_by_inn=False, check_by_tn=False),
                     DropRule(alias="gosb", values=["9999"], remove_unconditionally=True,
@@ -478,10 +548,11 @@ class ConfigManager:
                              check_by_inn=False, check_by_tn=False),
                     DropRule(alias="tab_number", values=["Серая зона", "-", "0", "00000000", "Tech_UB", "Tech_YZB", "Tech_SRB", "Tech_SRB", "Tech_Sib", "Tech_PB", "TECH_000006", "TECH_000006"], remove_unconditionally=True,
                              check_by_inn=False, check_by_tn=False),
-                ], in_rules=[],
+                ],
+                in_rules=[],
                 tab_number_column="tab_number", tb_column="tb", gosb_column="gosb", fio_column="fio", indicator_column="indicator",
                 header_row=0, skip_rows=0, skip_footer=0, sheet_name=None, sheet_index=None,
-                calculation_type=2, first_month_value="self", three_periods_first_months="self_first_diff_second",
+                calculation_type=1, first_month_value="self", three_periods_first_months="self_first_diff_second",
                 indicator_direction="MAX", weight=0.34
             )
         )
