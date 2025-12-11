@@ -2391,11 +2391,15 @@ class FileProcessor:
         """
         Обрабатывает один файл для листа RAW.
         
+        ВАЖНО: Работает с уже загруженными данными из self.processed_files, которые уже содержат
+        правильные колонки в зависимости от DATA_MODE (TEST/PROM). Алиасы колонок (tab_number_column,
+        indicator_column, tb_column, gosb_column, fio_column) одинаковые для обоих режимов.
+        
         Args:
             group: Название группы (OD, RA, PS)
             file_name: Имя файла
-            df: DataFrame с данными файла
-            defaults: Конфигурация по умолчанию для группы
+            df: DataFrame с данными файла (уже загружен с правильными колонками)
+            defaults: Конфигурация по умолчанию для группы (содержит алиасы колонок)
             month: Номер месяца
         
         Returns:
@@ -2618,12 +2622,16 @@ class FileProcessor:
         """
         Создает индекс (словарь) для одного файла: {tab_number: sum}.
         
+        ВАЖНО: Работает с уже загруженными данными из self.processed_files, которые уже содержат
+        правильные колонки в зависимости от DATA_MODE (TEST/PROM). Алиасы колонок (tab_number_column,
+        indicator_column) одинаковые для обоих режимов.
+        
         Args:
             group: Название группы (OD, RA, PS)
             file_name: Имя файла
             full_name: Полное имя файла (group_file_name)
-            df: DataFrame с данными файла
-            defaults: Конфигурация по умолчанию для группы
+            df: DataFrame с данными файла (уже загружен с правильными колонками)
+            defaults: Конфигурация по умолчанию для группы (содержит алиасы колонок)
         
         Returns:
             Словарь {tab_number: sum} с суммами показателей по табельным номерам
