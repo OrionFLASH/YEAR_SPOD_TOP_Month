@@ -514,7 +514,6 @@ class ConfigManager:
                 #   DropRule(alias="status", values=["Удален", "Архив"], remove_unconditionally=True, check_by_inn=False, check_by_tn=False)
                 #   DropRule(alias="tb", values=["ЦА"], remove_unconditionally=True, check_by_inn=True, check_by_tn=False)
                 drop_rules=[
-                    DropRule(alias="status", values=["Удален", "Архив"], remove_unconditionally=True, check_by_inn=False, check_by_tn=False),
                     DropRule(alias="fio", values=["Серая зона"], remove_unconditionally=True,
                              check_by_inn=False, check_by_tn=False),
                     DropRule(alias="client_id", values=["НЕ ОПРЕДЕЛЕН"], remove_unconditionally=True,
@@ -643,7 +642,6 @@ class ConfigManager:
                 #   DropRule(alias="status", values=["Удален", "Архив"], remove_unconditionally=True, check_by_inn=False, check_by_tn=False)
                 #   DropRule(alias="tb", values=["ЦА"], remove_unconditionally=True, check_by_inn=True, check_by_tn=False)
                 drop_rules=[
-                    DropRule(alias="status", values=["Удален", "Архив"], remove_unconditionally=True, check_by_inn=False, check_by_tn=False),
                     DropRule(alias="tb", values=["ЦА"], remove_unconditionally=True,
                              check_by_inn=False, check_by_tn=False),
                     DropRule(alias="gosb", values=["9999"], remove_unconditionally=True,
@@ -725,7 +723,6 @@ class ConfigManager:
                 #   DropRule(alias="status", values=["Удален", "Архив"], remove_unconditionally=True, check_by_inn=False, check_by_tn=False)
                 #   DropRule(alias="tb", values=["ЦА"], remove_unconditionally=True, check_by_inn=True, check_by_tn=False)
                 drop_rules=[
-                    DropRule(alias="status", values=["Удален", "Архив"], remove_unconditionally=True, check_by_inn=False, check_by_tn=False),
                     DropRule(alias="tb", values=["ЦА"], remove_unconditionally=True,
                              check_by_inn=False, check_by_tn=False),
                     DropRule(alias="gosb", values=["9999"], remove_unconditionally=True,
