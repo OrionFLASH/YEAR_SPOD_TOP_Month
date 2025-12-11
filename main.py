@@ -1013,28 +1013,55 @@ class Logger:
         Маскирует ФИО в тексте: от каждого слова оставляем первые 2 буквы, далее три звездочки и последняя 1 буква.
         Пример: Петров Иван Владимирович -> Пе***в Ив***н Вл***ч
         
+        ВАЖНО: Маскирует только ФИО в контексте структурированных данных (после "ФИО:", "ВКО:", "КМ:" и т.д.)
+        или в значениях словарей/структур. НЕ маскирует обычные слова в логах типа "Обработка", "Загрузка" и т.д.
+        
         Args:
             text: Текст для маскировки
             
         Returns:
             str: Текст с замаскированными ФИО
         """
-        # Ищем ФИО - слова, которые могут быть именами (кириллица, заглавные буквы в начале)
-        # Паттерн ищет последовательности слов с заглавной буквы (кириллица)
-        # Улучшенный паттерн: ищем слова с заглавной буквы, которые могут быть частью ФИО
-        pattern = r'\b([А-ЯЁ][а-яё]{2,})\b'
-        def mask_fio_word(match):
-            word = match.group(1)
+        def mask_fio_word(word: str) -> str:
+            """Маскирует одно слово ФИО."""
             if len(word) >= 4:
-                # Первые 2 буквы + *** + последняя буква
                 return f"{word[:2]}***{word[-1]}"
             elif len(word) >= 3:
-                # Если слово короткое (3 буквы), маскируем среднюю
                 return f"{word[0]}***{word[-1]}"
             else:
-                # Очень короткие слова не маскируем
                 return word
-        return re.sub(pattern, mask_fio_word, text)
+        
+        def mask_fio_text(fio_text: str) -> str:
+            """Маскирует текст ФИО (может содержать несколько слов)."""
+            words = fio_text.split()
+            masked_words = [mask_fio_word(word) for word in words]
+            return ' '.join(masked_words)
+        
+        # Паттерн 1: ФИО после меток типа "ФИО:", "ВКО:", "КМ:" и т.д. (с двоеточием или равно)
+        # Ищем паттерн типа "ФИО='Петров Иван'" или "ВКО: Иванов" или "КМ=\"Сидоров\""
+        pattern1 = r"(ФИО|ВКО|КМ)\s*[:=]\s*['\"]([А-ЯЁ][а-яё]{2,}(?:\s+[А-ЯЁ][а-яё]{2,}){0,2})['\"]"
+        def replace_fio1(match):
+            label = match.group(1)
+            fio_text = match.group(2)
+            masked = mask_fio_text(fio_text)
+            return f"{label}='{masked}'"
+        text = re.sub(pattern1, replace_fio1, text, flags=re.IGNORECASE)
+        
+        # Паттерн 2: ФИО в контексте "ФИО='...'" (уже обработанный выше, но для надежности)
+        pattern2 = r"(ФИО\s*=\s*['\"])([А-ЯЁ][а-яё]{2,}(?:\s+[А-ЯЁ][а-яё]{2,}){0,2})(['\"])"
+        def replace_fio2(match):
+            prefix = match.group(1)
+            fio_text = match.group(2)
+            suffix = match.group(3)
+            masked = mask_fio_text(fio_text)
+            return prefix + masked + suffix
+        text = re.sub(pattern2, replace_fio2, text, flags=re.IGNORECASE)
+        
+        # Паттерн 3: ФИО в структурированных данных типа "{'ФИО': 'Петров Иван'}"
+        pattern3 = r"(['\"]ФИО['\"]\s*:\s*['\"])([А-ЯЁ][а-яё]{2,}(?:\s+[А-ЯЁ][а-яё]{2,}){0,2})(['\"])"
+        text = re.sub(pattern3, replace_fio2, text, flags=re.IGNORECASE)
+        
+        return text
     
     def _mask_sensitive_data(self, text: str) -> str:
         """
@@ -2519,6 +2546,13 @@ class FileProcessor:
                         func_name="_process_file_for_raw"
                     )
         
+        # ВАЖНО: Нормализуем табельные номера перед переименованием (для корректного сравнения с final_df)
+        # Применяем нормализацию табельных номеров (8 знаков с лидирующими нулями)
+        if tab_col in grouped.columns:
+            grouped[tab_col] = grouped[tab_col].apply(
+                lambda x: self._normalize_tab_number(x, defaults.tab_number_length, defaults.tab_number_fill_char)
+            )
+        
         # Переименовываем колонки для единообразия (без ГОСБ)
         grouped = grouped.rename(columns={
             tab_col: "Табельный",
@@ -3728,20 +3762,28 @@ class FileProcessor:
         
         # Добавляем колонку с числом уникальных ИНН для каждого табельного номера (из RAW)
         if raw_df is not None and "Табельный" in raw_df.columns and "ИНН" in raw_df.columns:
+            # ВАЖНО: Табельные номера в raw_df уже нормализованы (8 знаков с лидирующими нулями) в _process_file_for_raw
             # Подсчитываем количество уникальных ИНН для каждого табельного номера
             unique_inn_count = raw_df.groupby("Табельный")["ИНН"].nunique().to_dict()
-            # Добавляем колонку в final_df
+            
+            # Добавляем колонку в final_df (табельные номера в final_df тоже нормализованы)
             final_df["Количество уникальных ИНН"] = final_df["Табельный"].apply(
-                lambda x: unique_inn_count.get(str(x).strip().lstrip('0'), 0)
+                lambda x: unique_inn_count.get(str(x), 0)
             )
-            self.logger.debug(f"Добавлена колонка 'Количество уникальных ИНН' в final_df", "FileProcessor", "_calculate_best_month_variant3")
+            
+            # Логируем статистику для диагностики
+            non_zero_count = (final_df["Количество уникальных ИНН"] > 0).sum()
+            total_count = len(final_df)
+            sample_values = final_df["Количество уникальных ИНН"].head(5).tolist()
+            self.logger.debug(f"Добавлена колонка 'Количество уникальных ИНН' в final_df: {non_zero_count}/{total_count} строк с ненулевыми значениями. Примеры значений: {sample_values}", "FileProcessor", "_calculate_best_month_variant3")
         else:
             # Если raw_df не передан или нет нужных колонок, заполняем нулями
             final_df["Количество уникальных ИНН"] = 0
             if raw_df is None:
                 self.logger.debug(f"raw_df не передан, колонка 'Количество уникальных ИНН' заполнена нулями", "FileProcessor", "_calculate_best_month_variant3")
             else:
-                self.logger.warning(f"В raw_df отсутствуют колонки 'Табельный' или 'ИНН', колонка 'Количество уникальных ИНН' заполнена нулями", "FileProcessor", "_calculate_best_month_variant3")
+                available_cols = list(raw_df.columns) if raw_df is not None else []
+                self.logger.warning(f"В raw_df отсутствуют колонки 'Табельный' или 'ИНН'. Доступные колонки: {available_cols[:10]}. Колонка 'Количество уникальных ИНН' заполнена нулями", "FileProcessor", "_calculate_best_month_variant3")
         
         # ВАЖНО: Проверяем, что данные не пустые
         if len(places_df) > 0:
