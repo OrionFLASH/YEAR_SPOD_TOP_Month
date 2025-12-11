@@ -30,12 +30,7 @@ try:
 except ImportError:
     OPENPYXL_AVAILABLE = False
 
-# Попытка импортировать xlsxwriter для форматирования (если openpyxl недоступен)
-try:
-    import xlsxwriter
-    XLSXWRITER_AVAILABLE = True
-except ImportError:
-    XLSXWRITER_AVAILABLE = False
+# xlsxwriter удален - используется только openpyxl
 
 
 # ============================================================================
@@ -679,7 +674,7 @@ class Logger:
         file_handler = logging.FileHandler(log_file, encoding='utf-8')
         file_handler.setLevel(logging.DEBUG)
         
-        # Создаем форматтер для DEBUG уровня
+        # Создаем форматтер для DEBUG уровня (с [class: ... | def: ...], но без YEAR_SPOD_TOP_Month и debug)
         debug_formatter = logging.Formatter(
             '%(asctime)s - [%(levelname)s] - %(message)s [class: %(name)s | def: %(funcName)s]',
             datefmt='%Y-%m-%d %H:%M:%S'
@@ -710,6 +705,27 @@ class Logger:
         filename = f"{self.level}_{self.theme}_{now.strftime('%Y%m%d_%H%M')}.log"
         return self.log_dir / filename
     
+    def _mask_tab_number(self, text: str) -> str:
+        """
+        Маскирует табельные номера в тексте (xxx***xxx - первые 3 и последние 3 символа).
+        НЕ удаляет табельные номера, а только маскирует их.
+        
+        Args:
+            text: Текст для маскировки
+            
+        Returns:
+            str: Текст с замаскированными табельными номерами (но табельные остаются в тексте)
+        """
+        # Ищем табельные номера (8 цифр) - только полные 8-значные числа
+        pattern = r'\b(\d{8})\b'
+        def mask_match(match):
+            tab = match.group(1)
+            if len(tab) >= 6:
+                # Маскируем: первые 3 и последние 3 символа остаются, средние заменяются на ***
+                return f"{tab[:3]}***{tab[-3:]}"
+            return match.group(0)  # Если не 8 цифр, оставляем как есть
+        return re.sub(pattern, mask_match, text)
+    
     def info(self, message: str, class_name: Optional[str] = None, func_name: Optional[str] = None) -> None:
         """
         Логирует сообщение уровня INFO.
@@ -719,10 +735,19 @@ class Logger:
             class_name: Имя класса (опционально)
             func_name: Имя функции (опционально)
         """
+        # Маскируем табельные номера (но не удаляем их)
+        masked_message = self._mask_tab_number(message)
+        # Форматируем сообщение с классом и функцией (если указаны), но убираем только YEAR_SPOD_TOP_Month
         if class_name and func_name:
-            self.logger.info(f"{message} [class: {class_name} | def: {func_name}]")
+            # Убираем YEAR_SPOD_TOP_Month из class_name, если есть
+            clean_class = class_name.replace("YEAR_SPOD_TOP_Month", "").strip()
+            if clean_class:
+                formatted_message = f"{masked_message} [class: {clean_class} | def: {func_name}]"
+            else:
+                formatted_message = f"{masked_message} [def: {func_name}]"
+            self.logger.info(formatted_message)
         else:
-            self.logger.info(message)
+            self.logger.info(masked_message)
     
     def debug(self, message: str, class_name: Optional[str] = None, func_name: Optional[str] = None) -> None:
         """
@@ -733,10 +758,25 @@ class Logger:
             class_name: Имя класса (опционально)
             func_name: Имя функции (опционально)
         """
+        # Маскируем табельные номера (но не удаляем их)
+        masked_message = self._mask_tab_number(message)
+        # Форматируем сообщение с классом и функцией (если указаны), но убираем только YEAR_SPOD_TOP_Month и "debug"
         if class_name and func_name:
-            self.logger.debug(f"{message} [class: {class_name} | def: {func_name}]")
+            # Убираем YEAR_SPOD_TOP_Month из class_name, если есть
+            clean_class = class_name.replace("YEAR_SPOD_TOP_Month", "").strip()
+            # Убираем "debug" из func_name, если есть (но оставляем остальное)
+            clean_func = func_name.replace("debug", "").strip() if func_name and func_name == "debug" else func_name
+            if clean_class and clean_func:
+                formatted_message = f"{masked_message} [class: {clean_class} | def: {clean_func}]"
+            elif clean_class:
+                formatted_message = f"{masked_message} [class: {clean_class}]"
+            elif clean_func:
+                formatted_message = f"{masked_message} [def: {clean_func}]"
+            else:
+                formatted_message = masked_message
+            self.logger.debug(formatted_message)
         else:
-            self.logger.debug(message)
+            self.logger.debug(masked_message)
     
     def warning(self, message: str, class_name: Optional[str] = None, func_name: Optional[str] = None) -> None:
         """
@@ -747,10 +787,17 @@ class Logger:
             class_name: Имя класса (опционально)
             func_name: Имя функции (опционально)
         """
+        # Маскируем табельные номера (но не удаляем их)
+        masked_message = self._mask_tab_number(message)
         if class_name and func_name:
-            self.logger.warning(f"{message} [class: {class_name} | def: {func_name}]")
+            clean_class = class_name.replace("YEAR_SPOD_TOP_Month", "").strip()
+            if clean_class:
+                formatted_message = f"{masked_message} [class: {clean_class} | def: {func_name}]"
+            else:
+                formatted_message = f"{masked_message} [def: {func_name}]"
+            self.logger.warning(formatted_message)
         else:
-            self.logger.warning(message)
+            self.logger.warning(masked_message)
     
     def error(self, message: str, class_name: Optional[str] = None, func_name: Optional[str] = None) -> None:
         """
@@ -761,10 +808,17 @@ class Logger:
             class_name: Имя класса (опционально)
             func_name: Имя функции (опционально)
         """
+        # Маскируем табельные номера (но не удаляем их)
+        masked_message = self._mask_tab_number(message)
         if class_name and func_name:
-            self.logger.error(f"{message} [class: {class_name} | def: {func_name}]")
+            clean_class = class_name.replace("YEAR_SPOD_TOP_Month", "").strip()
+            if clean_class:
+                formatted_message = f"{masked_message} [class: {clean_class} | def: {func_name}]"
+            else:
+                formatted_message = f"{masked_message} [def: {func_name}]"
+            self.logger.error(formatted_message)
         else:
-            self.logger.error(message)
+            self.logger.error(masked_message)
 
 
 # ============================================================================
@@ -1625,12 +1679,15 @@ class FileProcessor:
                 # ОПТИМИЗАЦИЯ: Выбираем уникальные строки для каждого табельного номера
                 # Сначала суммируем показатели по комбинациям ТН+ТБ+ГОСБ, затем выбираем максимум
                 if indicator_col in df_normalized.columns:
-                    # Шаг 1: Группируем по ТН+ТБ+ГОСБ и суммируем показатели (быстро, векторизовано)
+                    # Шаг 1: Группируем по ТН+ТБ+ГОСБ+ФИО и суммируем показатели (быстро, векторизовано)
+                    # ВАЖНО: Включаем fio_col в группировку, чтобы он был доступен после merge
                     group_cols = [tab_col]
                     if tb_col in df_normalized.columns:
                         group_cols.append(tb_col)
                     if gosb_col in df_normalized.columns:
                         group_cols.append(gosb_col)
+                    if fio_col in df_normalized.columns:
+                        group_cols.append(fio_col)
                     
                     grouped = df_normalized.groupby(group_cols, as_index=False)[indicator_col].sum()
                     
@@ -1669,11 +1726,40 @@ class FileProcessor:
                     
                     # Шаг 3: Находим соответствующие строки в исходном DataFrame через merge (быстро)
                     # Используем merge вместо циклов с mask - это векторизованная операция
+                    # ВАЖНО: Включаем все нужные колонки в merge, чтобы они были доступны в df_unique
+                    merge_cols = [tab_col]
+                    if tb_col in max_rows.columns:
+                        merge_cols.append(tb_col)
+                    if gosb_col in max_rows.columns:
+                        merge_cols.append(gosb_col)
+                    if fio_col in max_rows.columns:
+                        merge_cols.append(fio_col)
+                    
+                    # ВАЖНО: merge сохраняет все колонки из df_normalized, включая те, что не в merge_cols
                     df_unique = df_normalized.merge(
-                        max_rows[[tab_col, tb_col, gosb_col]],
-                        on=[tab_col, tb_col, gosb_col],
+                        max_rows[merge_cols],
+                        on=merge_cols,
                         how='inner'
                     ).drop_duplicates(subset=[tab_col], keep='first')
+                    
+                    # РАСШИРЕННОЕ ЛОГИРОВАНИЕ: Проверяем, что нужные колонки есть в df_unique
+                    missing_cols = []
+                    if tb_col not in df_unique.columns:
+                        missing_cols.append(tb_col)
+                    if gosb_col not in df_unique.columns:
+                        missing_cols.append(gosb_col)
+                    if fio_col not in df_unique.columns:
+                        missing_cols.append(fio_col)
+                    
+                    if missing_cols:
+                        self.logger.error(f"КРИТИЧЕСКАЯ ОШИБКА: Колонки {missing_cols} не найдены в df_unique после merge для файла {file_name}. Доступные колонки: {list(df_unique.columns)}. merge_cols={merge_cols}, max_rows.columns={list(max_rows.columns)}", "FileProcessor", "collect_unique_tab_numbers")
+                    else:
+                        # Проверяем, что данные не пустые
+                        if len(df_unique) > 0:
+                            sample_tb = df_unique[tb_col].iloc[0] if tb_col in df_unique.columns else None
+                            sample_gosb = df_unique[gosb_col].iloc[0] if gosb_col in df_unique.columns else None
+                            sample_fio = df_unique[fio_col].iloc[0] if fio_col in df_unique.columns else None
+                            self.logger.debug(f"df_unique после merge для файла {file_name}: {len(df_unique)} строк. Пример: ТБ='{sample_tb}', ГОСБ='{sample_gosb}', ФИО='{sample_fio}'", "FileProcessor", "collect_unique_tab_numbers")
                 else:
                     # Если нет колонки с показателем, используем старую логику
                     df_unique = df_normalized.drop_duplicates(subset=[tab_col], keep='first')
@@ -1697,11 +1783,32 @@ class FileProcessor:
                     self.logger.debug(f"В файле {file_name} найдено {duplicates_count} дубликатов табельных номеров, оставлено уникальных: {len(df_unique)}", "FileProcessor", "collect_unique_tab_numbers")
                 
                 # ВАЖНО: Используем нормализованные значения из df_unique напрямую
-                for idx in df_unique.index:
+                # ОПТИМИЗАЦИЯ: Используем itertuples() вместо iterrows() для ускорения (12x быстрее)
+                # Получаем индексы колонок один раз для быстрого доступа
+                tab_col_idx = df_unique.columns.get_loc(tab_col) if tab_col in df_unique.columns else -1
+                tb_col_idx = df_unique.columns.get_loc(tb_col) if tb_col in df_unique.columns else -1
+                gosb_col_idx = df_unique.columns.get_loc(gosb_col) if gosb_col in df_unique.columns else -1
+                fio_col_idx = df_unique.columns.get_loc(fio_col) if fio_col in df_unique.columns else -1
+                
+                # РАСШИРЕННОЕ ЛОГИРОВАНИЕ: Проверяем наличие колонок
+                if tab_col_idx < 0:
+                    self.logger.warning(f"Колонка '{tab_col}' не найдена в df_unique для файла {file_name}. Доступные колонки: {list(df_unique.columns)}", "FileProcessor", "collect_unique_tab_numbers")
+                if tb_col_idx < 0:
+                    self.logger.warning(f"Колонка '{tb_col}' не найдена в df_unique для файла {file_name}. Доступные колонки: {list(df_unique.columns)}", "FileProcessor", "collect_unique_tab_numbers")
+                if gosb_col_idx < 0:
+                    self.logger.warning(f"Колонка '{gosb_col}' не найдена в df_unique для файла {file_name}. Доступные колонки: {list(df_unique.columns)}", "FileProcessor", "collect_unique_tab_numbers")
+                if fio_col_idx < 0:
+                    self.logger.warning(f"Колонка '{fio_col}' не найдена в df_unique для файла {file_name}. Доступные колонки: {list(df_unique.columns)}", "FileProcessor", "collect_unique_tab_numbers")
+                
+                for row_tuple in df_unique.itertuples(index=False):
                     # Получаем нормализованные значения из df_unique (уже нормализованы при загрузке)
-                    tab_number = str(df_unique.loc[idx, tab_col])
+                    # itertuples() возвращает tuple, доступ к колонкам по индексу
+                    if tab_col_idx >= 0 and tab_col_idx < len(row_tuple):
+                        tab_number = str(row_tuple[tab_col_idx])
+                    else:
+                        tab_number = ""
                     
-                    if not tab_number or tab_number == '':
+                    if not tab_number or tab_number == '' or tab_number.lower() == 'nan':
                         continue
                     
                     # ВАЖНО: Если табельный номер уже найден ранее (в файле с более высоким приоритетом),
@@ -1709,11 +1816,46 @@ class FileProcessor:
                     # Алгоритм: ищем от OD к PS, от декабря к январю, берем ПЕРВЫЙ найденный
                     if tab_number not in all_tab_data:
                         # Табельный номер еще не встречался - добавляем его
+                        # ВАЖНО: Извлекаем значения с проверкой на NaN и пустые строки
+                        tb_val = row_tuple[tb_col_idx] if tb_col_idx >= 0 and tb_col_idx < len(row_tuple) else None
+                        gosb_val = row_tuple[gosb_col_idx] if gosb_col_idx >= 0 and gosb_col_idx < len(row_tuple) else None
+                        fio_val = row_tuple[fio_col_idx] if fio_col_idx >= 0 and fio_col_idx < len(row_tuple) else None
+                        
+                        # РАСШИРЕННОЕ ЛОГИРОВАНИЕ: Логируем первые несколько записей с детальной информацией
+                        if len(all_tab_data) < 5:
+                            self.logger.debug(f"Извлечение данных для табельного {tab_number}: tb_col_idx={tb_col_idx}, gosb_col_idx={gosb_col_idx}, fio_col_idx={fio_col_idx}, len(row_tuple)={len(row_tuple)}, tb_val={tb_val}, gosb_val={gosb_val}, fio_val={fio_val}", "FileProcessor", "collect_unique_tab_numbers")
+                        
+                        # Преобразуем в строку с обработкой NaN и пустых значений
+                        if tb_val is not None and pd.notna(tb_val):
+                            tb_str = str(tb_val).strip()
+                            if tb_str.lower() in ['nan', 'none', '']:
+                                tb_str = ""
+                        else:
+                            tb_str = ""
+                        
+                        if gosb_val is not None and pd.notna(gosb_val):
+                            gosb_str = str(gosb_val).strip()
+                            if gosb_str.lower() in ['nan', 'none', '']:
+                                gosb_str = ""
+                        else:
+                            gosb_str = ""
+                        
+                        if fio_val is not None and pd.notna(fio_val):
+                            fio_str = str(fio_val).strip()
+                            if fio_str.lower() in ['nan', 'none', '']:
+                                fio_str = ""
+                        else:
+                            fio_str = ""
+                        
+                        # Логируем первые несколько записей для отладки
+                        if len(all_tab_data) < 5:
+                            self.logger.debug(f"Добавлен табельный {tab_number}: ТБ='{tb_str}', ГОСБ='{gosb_str}', ФИО='{fio_str}' (из файла {file_name})", "FileProcessor", "collect_unique_tab_numbers")
+                        
                         all_tab_data[tab_number] = {
                             "tab_number": tab_number,
-                            "tb": str(df_unique.loc[idx, tb_col]).strip() if tb_col in df_unique.columns else "",
-                            "gosb": str(df_unique.loc[idx, gosb_col]).strip() if gosb_col in df_unique.columns else "",
-                            "fio": str(df_unique.loc[idx, fio_col]).strip() if fio_col in df_unique.columns else "",
+                            "tb": tb_str,
+                            "gosb": gosb_str,
+                            "fio": fio_str,
                             "group": group,
                             "month": month,
                             "priority": current_priority
@@ -1983,11 +2125,24 @@ class FileProcessor:
             # Форматируем табельный номер: 8 знаков с лидирующими нулями
             tab_number_formatted = str(tab_number).zfill(8) if tab_number else "00000000"
             
+            # ВАЖНО: Извлекаем значения напрямую из словаря (не через get с проверкой)
+            tb_value = tab_info.get("tb", "") or ""
+            gosb_value = tab_info.get("gosb", "") or ""
+            fio_value = tab_info.get("fio", "") or ""
+            
+            # РАСШИРЕННОЕ ЛОГИРОВАНИЕ: Логируем первые несколько записей и каждую 100-ю для отладки
+            if processed_count <= 5 or processed_count % 100 == 0:
+                self.logger.debug(f"Подготовка строки для табельного {tab_number_formatted}: ТБ='{tb_value}', ГОСБ='{gosb_value}', ФИО='{fio_value}' (из tab_info: {list(tab_info.keys())}, значения: {tab_info})", "FileProcessor", "prepare_summary_data")
+                
+                # Проверяем, что значения не пустые
+                if not tb_value and not gosb_value and not fio_value:
+                    self.logger.warning(f"ВНИМАНИЕ: Для табельного {tab_number_formatted} все значения (ТБ, ГОСБ, ФИО) пустые! tab_info={tab_info}", "FileProcessor", "prepare_summary_data")
+            
             row = {
                 "Табельный": tab_number_formatted,
-                "ТБ": tab_info["tb"],
-                "ГОСБ": tab_info["gosb"],
-                "ФИО": tab_info["fio"]
+                "ТБ": str(tb_value) if tb_value else "",
+                "ГОСБ": str(gosb_value) if gosb_value else "",
+                "ФИО": str(fio_value) if fio_value else ""
             }
             
             # ОПТИМИЗАЦИЯ: Используем предварительно созданные индексы вместо фильтрации
@@ -2002,6 +2157,21 @@ class FileProcessor:
         self.logger.debug(f"Лист 'Данные': Завершена обработка всех табельных номеров, формирование DataFrame из {len(result_data)} строк", "FileProcessor", "prepare_summary_data")
         result_df = pd.DataFrame(result_data)
         self.logger.debug(f"Лист 'Данные': DataFrame создан, размер: {len(result_df)} строк x {len(result_df.columns)} колонок", "FileProcessor", "prepare_summary_data")
+        
+        # ВАЖНО: Проверяем, что базовые колонки заполнены данными
+        if len(result_df) > 0:
+            sample_tb = result_df["ТБ"].iloc[0] if "ТБ" in result_df.columns else None
+            sample_gosb = result_df["ГОСБ"].iloc[0] if "ГОСБ" in result_df.columns else None
+            sample_fio = result_df["ФИО"].iloc[0] if "ФИО" in result_df.columns else None
+            self.logger.debug(f"summary_df (result_df) создан: {len(result_df)} строк. Пример: ТБ='{sample_tb}', ГОСБ='{sample_gosb}', ФИО='{sample_fio}'", "FileProcessor", "prepare_summary_data")
+            
+            # Проверяем, что не все значения пустые
+            if "ТБ" in result_df.columns:
+                non_empty_tb = result_df["ТБ"].notna() & (result_df["ТБ"] != "")
+                if non_empty_tb.sum() == 0:
+                    self.logger.warning(f"В summary_df все значения ТБ пустые!", "FileProcessor", "prepare_summary_data")
+                else:
+                    self.logger.debug(f"В summary_df заполнено ТБ: {non_empty_tb.sum()}/{len(result_df)} строк", "FileProcessor", "prepare_summary_data")
         
         # Собираем итоговую статистику
         if ENABLE_STATISTICS:
@@ -2044,8 +2214,16 @@ class FileProcessor:
                 duplicate_tabs = duplicates["Табельный"].unique()
                 self.logger.warning(f"Лист 'Данные': Обнаружено {len(duplicate_tabs)} дубликатов табельных номеров в итоговом результате! Примеры: {list(duplicate_tabs[:5])}", "FileProcessor", "prepare_summary_data")
                 # Удаляем дубликаты, оставляя первую запись
+                # ВАЖНО: Сохраняем базовые колонки при удалении дубликатов
                 result_df = result_df.drop_duplicates(subset=["Табельный"], keep='first')
                 self.logger.warning(f"Лист 'Данные': Дубликаты удалены, осталось {len(result_df)} уникальных табельных номеров", "FileProcessor", "prepare_summary_data")
+                
+                # Проверяем, что базовые колонки не потерялись после drop_duplicates
+                if len(result_df) > 0:
+                    sample_tb = result_df["ТБ"].iloc[0] if "ТБ" in result_df.columns else None
+                    sample_gosb = result_df["ГОСБ"].iloc[0] if "ГОСБ" in result_df.columns else None
+                    sample_fio = result_df["ФИО"].iloc[0] if "ФИО" in result_df.columns else None
+                    self.logger.debug(f"После drop_duplicates: ТБ='{sample_tb}', ГОСБ='{sample_gosb}', ФИО='{sample_fio}'", "FileProcessor", "prepare_summary_data")
         
         # Упорядочиваем колонки: сначала базовые, потом по группам и месяцам
         self.logger.debug("Лист 'Данные': Упорядочивание колонок", "FileProcessor", "prepare_summary_data")
@@ -2061,6 +2239,36 @@ class FileProcessor:
         
         result_df = result_df[final_columns]
         self.logger.debug(f"Лист 'Данные': Колонки упорядочены, итоговое количество: {len(result_df.columns)}", "FileProcessor", "prepare_summary_data")
+        
+        # ВАЖНО: Финальная проверка перед возвратом
+        if len(result_df) > 0:
+            # РАСШИРЕННОЕ ЛОГИРОВАНИЕ: Проверяем наличие базовых колонок
+            base_columns_check = ["Табельный", "ТБ", "ГОСБ", "ФИО"]
+            missing_base = [col for col in base_columns_check if col not in result_df.columns]
+            if missing_base:
+                self.logger.error(f"КРИТИЧЕСКАЯ ОШИБКА: В summary_df отсутствуют базовые колонки: {missing_base}. Доступные колонки: {list(result_df.columns)}", "FileProcessor", "prepare_summary_data")
+            else:
+                self.logger.debug(f"Проверка базовых колонок: все базовые колонки присутствуют в summary_df", "FileProcessor", "prepare_summary_data")
+            
+            sample_tb = result_df["ТБ"].iloc[0] if "ТБ" in result_df.columns else None
+            sample_gosb = result_df["ГОСБ"].iloc[0] if "ГОСБ" in result_df.columns else None
+            sample_fio = result_df["ФИО"].iloc[0] if "ФИО" in result_df.columns else None
+            self.logger.debug(f"Финальный summary_df: {len(result_df)} строк x {len(result_df.columns)} колонок. Пример первой строки: ТБ='{sample_tb}', ГОСБ='{sample_gosb}', ФИО='{sample_fio}'", "FileProcessor", "prepare_summary_data")
+            
+            # Проверяем, что не все значения пустые
+            if "ТБ" in result_df.columns:
+                non_empty_tb = result_df["ТБ"].notna() & (result_df["ТБ"] != "")
+                non_empty_gosb = result_df["ГОСБ"].notna() & (result_df["ГОСБ"] != "") if "ГОСБ" in result_df.columns else pd.Series([False] * len(result_df))
+                non_empty_fio = result_df["ФИО"].notna() & (result_df["ФИО"] != "") if "ФИО" in result_df.columns else pd.Series([False] * len(result_df))
+                self.logger.debug(f"Финальная проверка заполненности: ТБ={non_empty_tb.sum()}/{len(result_df)}, ГОСБ={non_empty_gosb.sum()}/{len(result_df)}, ФИО={non_empty_fio.sum()}/{len(result_df)}", "FileProcessor", "prepare_summary_data")
+                
+                if non_empty_tb.sum() == 0:
+                    self.logger.warning(f"ВНИМАНИЕ: В summary_df все значения ТБ пустые!", "FileProcessor", "prepare_summary_data")
+                if non_empty_gosb.sum() == 0:
+                    self.logger.warning(f"ВНИМАНИЕ: В summary_df все значения ГОСБ пустые!", "FileProcessor", "prepare_summary_data")
+                if non_empty_fio.sum() == 0:
+                    self.logger.warning(f"ВНИМАНИЕ: В summary_df все значения ФИО пустые!", "FileProcessor", "prepare_summary_data")
+        
         self.logger.info(f"Лист 'Данные': Подготовлено {len(result_df)} строк сводных данных, колонок: {len(result_df.columns)}", "FileProcessor", "prepare_summary_data")
         self.logger.info("=== Завершена подготовка сводных данных для листа 'Данные' ===", "FileProcessor", "prepare_summary_data")
         
@@ -2083,23 +2291,8 @@ class FileProcessor:
         """
         self.logger.info("=== Начало подготовки расчетных данных для листа 'Расчеты' ===", "FileProcessor", "prepare_calculated_data")
 
-        # ОПТИМИЗАЦИЯ: Конвертируем все числовые колонки в числовой тип перед вычислениями
-        # Это исправляет ошибку "unsupported operand type(s) for -: 'str' and 'float'"
-        numeric_columns = summary_df.select_dtypes(include=['object']).columns
-        for col in numeric_columns:
-            # Пробуем конвертировать в числовой тип
-            try:
-                summary_df[col] = pd.to_numeric(summary_df[col], errors='coerce')
-            except Exception:
-                pass  # Если не получилось, оставляем как есть
-        
-        # Также конвертируем все числовые колонки, которые могут быть строковыми
-        for col in summary_df.columns:
-            if col not in ['Табельный', 'ФИО', 'ТБ', 'ГОСБ', 'ИНН']:  # Пропускаем текстовые колонки
-                try:
-                    summary_df[col] = pd.to_numeric(summary_df[col], errors='coerce')
-                except Exception:
-                    pass
+        # ВАЖНО: Базовые текстовые колонки, которые НЕ должны конвертироваться в числа
+        base_text_columns = ['Табельный', 'ТБ', 'ГОСБ', 'ФИО', 'ИНН']
 
         # ОПТИМИЗАЦИЯ: Кэш для номеров месяцев
         month_cache = {}
@@ -2165,11 +2358,60 @@ class FileProcessor:
             else:
                 return f"{period_part} [факт]"
         
-        # Создаем копию базовых данных
-        calculated_df = summary_df.copy()
-        
         # Базовые колонки
         base_columns = ["Табельный", "ТБ", "ГОСБ", "ФИО"]
+        
+        # РАСШИРЕННОЕ ЛОГИРОВАНИЕ: Проверяем, что базовые колонки есть в summary_df перед копированием
+        if not all(col in summary_df.columns for col in base_columns):
+            missing_cols = [col for col in base_columns if col not in summary_df.columns]
+            self.logger.error(f"КРИТИЧЕСКАЯ ОШИБКА: В summary_df отсутствуют базовые колонки: {missing_cols}. Доступные колонки: {list(summary_df.columns)}", "FileProcessor", "prepare_calculated_data")
+            raise ValueError(f"Отсутствуют базовые колонки в summary_df: {missing_cols}")
+        else:
+            self.logger.debug(f"Проверка summary_df: все базовые колонки присутствуют перед копированием", "FileProcessor", "prepare_calculated_data")
+        
+        # ВАЖНО: Создаем копию ПЕРЕД конвертацией, чтобы не испортить исходные данные
+        # Сбрасываем индекс, чтобы гарантировать совпадение строк
+        calculated_df = summary_df.copy().reset_index(drop=True)
+        
+        # ВАЖНО: Конвертируем числовые колонки ТОЛЬКО в calculated_df, а не в summary_df
+        # Это нужно делать ПОСЛЕ копирования, чтобы не испортить исходные данные
+        
+        # РАСШИРЕННОЕ ЛОГИРОВАНИЕ: Проверяем данные сразу после копирования, ДО конвертации
+        if len(calculated_df) > 0:
+            sample_tb_before = calculated_df["ТБ"].iloc[0] if "ТБ" in calculated_df.columns else None
+            sample_gosb_before = calculated_df["ГОСБ"].iloc[0] if "ГОСБ" in calculated_df.columns else None
+            sample_fio_before = calculated_df["ФИО"].iloc[0] if "ФИО" in calculated_df.columns else None
+            self.logger.debug(f"calculated_df сразу после копирования (ДО конвертации): ТБ='{sample_tb_before}', ГОСБ='{sample_gosb_before}', ФИО='{sample_fio_before}'", "FileProcessor", "prepare_calculated_data")
+        
+        # ВАЖНО: Проверяем, что базовые колонки есть и не пустые в calculated_df
+        if not all(col in calculated_df.columns for col in base_columns):
+            missing_cols = [col for col in base_columns if col not in calculated_df.columns]
+            self.logger.error(f"КРИТИЧЕСКАЯ ОШИБКА: После копирования в calculated_df отсутствуют базовые колонки: {missing_cols}. Доступные колонки: {list(calculated_df.columns)[:10]}", "FileProcessor", "prepare_calculated_data")
+            raise ValueError(f"Отсутствуют базовые колонки после копирования: {missing_cols}")
+        
+        # ОПТИМИЗАЦИЯ: Конвертируем все числовые колонки в числовой тип перед вычислениями
+        # Это исправляет ошибку "unsupported operand type(s) for -: 'str' and 'float'"
+        # ВАЖНО: Исключаем базовые текстовые колонки из конвертации!
+        for col in calculated_df.columns:
+            if col not in base_text_columns:  # Пропускаем текстовые колонки
+                try:
+                    # Пробуем конвертировать в числовой тип только если колонка не текстовая
+                    calculated_df[col] = pd.to_numeric(calculated_df[col], errors='coerce')
+                except Exception:
+                    pass  # Если не получилось, оставляем как есть
+        
+        # РАСШИРЕННОЕ ЛОГИРОВАНИЕ: Проверяем, что данные не пустые
+        if len(calculated_df) > 0:
+            sample_tb = calculated_df["ТБ"].iloc[0] if "ТБ" in calculated_df.columns else None
+            sample_gosb = calculated_df["ГОСБ"].iloc[0] if "ГОСБ" in calculated_df.columns else None
+            sample_fio = calculated_df["ФИО"].iloc[0] if "ФИО" in calculated_df.columns else None
+            self.logger.debug(f"calculated_df создан из summary_df: {len(calculated_df)} строк x {len(calculated_df.columns)} колонок. Пример: ТБ='{sample_tb}', ГОСБ='{sample_gosb}', ФИО='{sample_fio}'", "FileProcessor", "prepare_calculated_data")
+            
+            # Проверяем заполненность базовых колонок
+            non_empty_tb = calculated_df["ТБ"].notna() & (calculated_df["ТБ"] != "") if "ТБ" in calculated_df.columns else pd.Series([False] * len(calculated_df))
+            non_empty_gosb = calculated_df["ГОСБ"].notna() & (calculated_df["ГОСБ"] != "") if "ГОСБ" in calculated_df.columns else pd.Series([False] * len(calculated_df))
+            non_empty_fio = calculated_df["ФИО"].notna() & (calculated_df["ФИО"] != "") if "ФИО" in calculated_df.columns else pd.Series([False] * len(calculated_df))
+            self.logger.debug(f"Заполненность базовых колонок в calculated_df: ТБ={non_empty_tb.sum()}/{len(calculated_df)}, ГОСБ={non_empty_gosb.sum()}/{len(calculated_df)}, ФИО={non_empty_fio.sum()}/{len(calculated_df)}", "FileProcessor", "prepare_calculated_data")
         
         # Словарь для переименования колонок
         rename_dict = {}
@@ -2311,9 +2553,31 @@ class FileProcessor:
                         calculated_df[full_name] = curr_val - 2 * prev1_val + prev2_val
         
         # Переименовываем колонки на понятные имена (только те, которые существуют в DataFrame)
-        existing_rename_dict = {k: v for k, v in rename_dict.items() if k in calculated_df.columns}
+        # ВАЖНО: Исключаем базовые колонки из переименования
+        existing_rename_dict = {k: v for k, v in rename_dict.items() if k in calculated_df.columns and k not in base_columns}
         calculated_df = calculated_df.rename(columns=existing_rename_dict)
         self.logger.debug(f"Лист 'Расчеты': Переименовано колонок: {len(existing_rename_dict)}", "FileProcessor", "prepare_calculated_data")
+        
+        # ВАЖНО: Проверяем, что базовые колонки не потерялись после переименования
+        if not all(col in calculated_df.columns for col in base_columns):
+            missing_cols = [col for col in base_columns if col not in calculated_df.columns]
+            self.logger.error(f"КРИТИЧЕСКАЯ ОШИБКА: После переименования в calculated_df отсутствуют базовые колонки: {missing_cols}. Доступные колонки: {list(calculated_df.columns)}", "FileProcessor", "prepare_calculated_data")
+            raise ValueError(f"Потеряны базовые колонки после переименования: {missing_cols}")
+        else:
+            self.logger.debug(f"Проверка после переименования: все базовые колонки присутствуют в calculated_df", "FileProcessor", "prepare_calculated_data")
+        
+        # РАСШИРЕННОЕ ЛОГИРОВАНИЕ: Проверяем, что данные не пустые
+        if len(calculated_df) > 0:
+            sample_tb = calculated_df["ТБ"].iloc[0] if "ТБ" in calculated_df.columns else None
+            sample_gosb = calculated_df["ГОСБ"].iloc[0] if "ГОСБ" in calculated_df.columns else None
+            sample_fio = calculated_df["ФИО"].iloc[0] if "ФИО" in calculated_df.columns else None
+            self.logger.debug(f"calculated_df после переименования: {len(calculated_df)} строк x {len(calculated_df.columns)} колонок. Пример: ТБ='{sample_tb}', ГОСБ='{sample_gosb}', ФИО='{sample_fio}'", "FileProcessor", "prepare_calculated_data")
+            
+            # Проверяем заполненность базовых колонок после переименования
+            non_empty_tb = calculated_df["ТБ"].notna() & (calculated_df["ТБ"] != "") if "ТБ" in calculated_df.columns else pd.Series([False] * len(calculated_df))
+            non_empty_gosb = calculated_df["ГОСБ"].notna() & (calculated_df["ГОСБ"] != "") if "ГОСБ" in calculated_df.columns else pd.Series([False] * len(calculated_df))
+            non_empty_fio = calculated_df["ФИО"].notna() & (calculated_df["ФИО"] != "") if "ФИО" in calculated_df.columns else pd.Series([False] * len(calculated_df))
+            self.logger.debug(f"Заполненность базовых колонок после переименования: ТБ={non_empty_tb.sum()}/{len(calculated_df)}, ГОСБ={non_empty_gosb.sum()}/{len(calculated_df)}, ФИО={non_empty_fio.sum()}/{len(calculated_df)}", "FileProcessor", "prepare_calculated_data")
         
         # НЕ рассчитываем вертикальные ранги (убрано для варианта 3)
         # calculated_df = self._calculate_ranks(calculated_df, all_files_sorted, config_manager)
@@ -2358,7 +2622,36 @@ class FileProcessor:
                 month_data[month][group] = col
         
         # Создаем DataFrame для нормализованных данных
+        # ВАЖНО: Убеждаемся, что базовые колонки существуют и не пустые
+        if not all(col in calculated_df.columns for col in base_columns):
+            missing_cols = [col for col in base_columns if col not in calculated_df.columns]
+            self.logger.error(f"В calculated_df отсутствуют колонки: {missing_cols}. Доступные колонки: {list(calculated_df.columns)[:10]}", "FileProcessor", "_normalize_indicators")
+            raise ValueError(f"Отсутствуют базовые колонки в calculated_df: {missing_cols}")
+        
+        # ВАЖНО: НЕ сбрасываем индекс, чтобы индексы совпадали с calculated_df при присваивании
+        # Это критично для правильного присваивания нормализованных значений
         normalized_df = calculated_df[base_columns].copy()
+        
+        # РАСШИРЕННОЕ ЛОГИРОВАНИЕ: Проверяем, что базовые колонки скопированы правильно
+        if not all(col in normalized_df.columns for col in base_columns):
+            missing_cols = [col for col in base_columns if col not in normalized_df.columns]
+            self.logger.error(f"КРИТИЧЕСКАЯ ОШИБКА: В normalized_df отсутствуют базовые колонки после копирования: {missing_cols}. Доступные колонки: {list(normalized_df.columns)}", "FileProcessor", "_normalize_indicators")
+            raise ValueError(f"Отсутствуют базовые колонки в normalized_df: {missing_cols}")
+        else:
+            self.logger.debug(f"Проверка normalized_df: все базовые колонки присутствуют после копирования", "FileProcessor", "_normalize_indicators")
+        
+        # ВАЖНО: Проверяем, что данные не пустые
+        if len(normalized_df) > 0:
+            sample_tb = normalized_df["ТБ"].iloc[0] if "ТБ" in normalized_df.columns else None
+            sample_gosb = normalized_df["ГОСБ"].iloc[0] if "ГОСБ" in normalized_df.columns else None
+            sample_fio = normalized_df["ФИО"].iloc[0] if "ФИО" in normalized_df.columns else None
+            self.logger.debug(f"normalized_df создан: {len(normalized_df)} строк x {len(normalized_df.columns)} колонок. Пример: ТБ='{sample_tb}', ГОСБ='{sample_gosb}', ФИО='{sample_fio}'", "FileProcessor", "_normalize_indicators")
+            
+            # Проверяем заполненность базовых колонок
+            non_empty_tb = normalized_df["ТБ"].notna() & (normalized_df["ТБ"] != "") if "ТБ" in normalized_df.columns else pd.Series([False] * len(normalized_df))
+            non_empty_gosb = normalized_df["ГОСБ"].notna() & (normalized_df["ГОСБ"] != "") if "ГОСБ" in normalized_df.columns else pd.Series([False] * len(normalized_df))
+            non_empty_fio = normalized_df["ФИО"].notna() & (normalized_df["ФИО"] != "") if "ФИО" in normalized_df.columns else pd.Series([False] * len(normalized_df))
+            self.logger.debug(f"Заполненность базовых колонок в normalized_df: ТБ={non_empty_tb.sum()}/{len(normalized_df)}, ГОСБ={non_empty_gosb.sum()}/{len(normalized_df)}, ФИО={non_empty_fio.sum()}/{len(normalized_df)}", "FileProcessor", "_normalize_indicators")
         
         # Получаем направления для каждого показателя
         od_config = config_manager.get_group_config("OD").defaults if "OD" in config_manager.groups else None
@@ -2446,7 +2739,18 @@ class FileProcessor:
                 # Защита от выхода за границы [0, 1] (из-за погрешности вычислений)
                 normalized = normalized.clip(0.0, 1.0)
                 
-                normalized_df[norm_col_name] = normalized
+                # ВАЖНО: Убеждаемся, что индексы совпадают при присваивании
+                normalized_df.loc[normalized.index, norm_col_name] = normalized
+        
+        # ВАЖНО: Сбрасываем индекс только в конце, после всех присваиваний
+        normalized_df = normalized_df.reset_index(drop=True)
+        
+        # ВАЖНО: Финальная проверка перед возвратом
+        if len(normalized_df) > 0:
+            sample_tb = normalized_df["ТБ"].iloc[0] if "ТБ" in normalized_df.columns else None
+            sample_gosb = normalized_df["ГОСБ"].iloc[0] if "ГОСБ" in normalized_df.columns else None
+            sample_fio = normalized_df["ФИО"].iloc[0] if "ФИО" in normalized_df.columns else None
+            self.logger.debug(f"normalized_df финальный: {len(normalized_df)} строк. Пример: ТБ='{sample_tb}', ГОСБ='{sample_gosb}', ФИО='{sample_fio}'", "FileProcessor", "_normalize_indicators")
         
         self.logger.info(f"Нормализация завершена: {len(normalized_df)} строк, {len(normalized_df.columns)} колонок", "FileProcessor", "_normalize_indicators")
         return normalized_df
@@ -2532,10 +2836,37 @@ class FileProcessor:
                 month_data[month][group] = col
         
         # Создаем DataFrame для "Места и выбор"
-        places_df = normalized_df[base_columns].copy()
+        # ВАЖНО: Убеждаемся, что базовые колонки существуют
+        if not all(col in normalized_df.columns for col in base_columns):
+            missing_cols = [col for col in base_columns if col not in normalized_df.columns]
+            self.logger.error(f"В normalized_df отсутствуют колонки: {missing_cols}. Доступные колонки: {list(normalized_df.columns)[:10]}", "FileProcessor", "_calculate_best_month_variant3")
+            raise ValueError(f"Отсутствуют базовые колонки в normalized_df: {missing_cols}")
+        
+        # ВАЖНО: Сбрасываем индекс перед копированием, чтобы гарантировать совпадение строк
+        places_df = normalized_df[base_columns].copy().reset_index(drop=True)
         
         # Создаем DataFrame для "Итог"
-        final_df = calculated_df[base_columns].copy()
+        # ВАЖНО: Убеждаемся, что базовые колонки существуют в calculated_df
+        if not all(col in calculated_df.columns for col in base_columns):
+            missing_cols = [col for col in base_columns if col not in calculated_df.columns]
+            self.logger.error(f"В calculated_df отсутствуют колонки: {missing_cols}. Доступные колонки: {list(calculated_df.columns)[:10]}", "FileProcessor", "_calculate_best_month_variant3")
+            raise ValueError(f"Отсутствуют базовые колонки в calculated_df: {missing_cols}")
+        
+        # ВАЖНО: Сбрасываем индекс перед копированием, чтобы гарантировать совпадение строк
+        final_df = calculated_df[base_columns].copy().reset_index(drop=True)
+        
+        # ВАЖНО: Проверяем, что данные не пустые
+        if len(places_df) > 0:
+            sample_tb = places_df["ТБ"].iloc[0] if "ТБ" in places_df.columns else None
+            sample_gosb = places_df["ГОСБ"].iloc[0] if "ГОСБ" in places_df.columns else None
+            sample_fio = places_df["ФИО"].iloc[0] if "ФИО" in places_df.columns else None
+            self.logger.debug(f"places_df создан: {len(places_df)} строк. Пример: ТБ='{sample_tb}', ГОСБ='{sample_gosb}', ФИО='{sample_fio}'", "FileProcessor", "_calculate_best_month_variant3")
+        
+        if len(final_df) > 0:
+            sample_tb = final_df["ТБ"].iloc[0] if "ТБ" in final_df.columns else None
+            sample_gosb = final_df["ГОСБ"].iloc[0] if "ГОСБ" in final_df.columns else None
+            sample_fio = final_df["ФИО"].iloc[0] if "ФИО" in final_df.columns else None
+            self.logger.debug(f"final_df создан: {len(final_df)} строк. Пример: ТБ='{sample_tb}', ГОСБ='{sample_gosb}', ФИО='{sample_fio}'", "FileProcessor", "_calculate_best_month_variant3")
         
         # ОПТИМИЗАЦИЯ: Векторизованный расчет Score для каждого месяца
         score_cols = {}
@@ -2848,7 +3179,7 @@ class ExcelFormatter:
                               output_path: str, statistics_df: Optional[pd.DataFrame] = None) -> None:
         """
         Создает новый Excel файл с форматированием используя только базовые модули Anaconda.
-        Приоритет: openpyxl > xlsxwriter > без форматирования
+        Используется только openpyxl
         
         Создает 6 основных листов + лист "Статистика" (если включен):
         1. "RAW" - сырые данные после фильтрации (уникальные комбинации ТН+ФИО+ТБ+ГОСБ+ИНН с суммами по файлам)
@@ -2869,18 +3200,34 @@ class ExcelFormatter:
             output_path: Путь для сохранения файла
             statistics_df: DataFrame со статистикой (лист "Статистика") или None, если статистика отключена
         """
-        self.logger.info(f"Создание форматированного Excel файла {output_path}", "ExcelFormatter", "create_formatted_excel")
+        self.logger.info(f"Создание форматированного Excel файла {output_path}")
+        
+        # РАСШИРЕННОЕ ЛОГИРОВАНИЕ: Проверяем наличие базовых колонок во всех DataFrame перед сохранением
+        base_columns = ["Табельный", "ТБ", "ГОСБ", "ФИО"]
+        
+        for df_name, df in [("summary_df (Исходник)", summary_df), 
+                            ("calculated_df (Расчет)", calculated_df),
+                            ("normalized_df (Нормализация)", normalized_df),
+                            ("places_df (Места и выбор)", places_df),
+                            ("final_df (Итог)", final_df)]:
+            if df is not None and len(df) > 0:
+                missing_cols = [col for col in base_columns if col not in df.columns]
+                if missing_cols:
+                    self.logger.error(f"КРИТИЧЕСКАЯ ОШИБКА: В {df_name} отсутствуют базовые колонки: {missing_cols}. Доступные колонки: {list(df.columns)[:20]}", "ExcelFormatter", "create_formatted_excel")
+                else:
+                    self.logger.debug(f"Проверка {df_name}: все базовые колонки присутствуют. Размер: {len(df)} строк x {len(df.columns)} колонок", "ExcelFormatter", "create_formatted_excel")
+                    # Проверяем заполненность
+                    if "ТБ" in df.columns:
+                        non_empty = df["ТБ"].notna() & (df["ТБ"] != "")
+                        self.logger.debug(f"Заполненность ТБ в {df_name}: {non_empty.sum()}/{len(df)} строк", "ExcelFormatter", "create_formatted_excel")
         
         try:
             if OPENPYXL_AVAILABLE:
-                # Используем openpyxl для форматирования (приоритетный вариант)
+                # Используем openpyxl для форматирования
                 self._create_with_openpyxl(raw_df, summary_df, calculated_df, normalized_df, places_df, final_df, output_path, statistics_df)
-            elif XLSXWRITER_AVAILABLE:
-                # Используем xlsxwriter для форматирования (если openpyxl недоступен)
-                self._create_with_xlsxwriter(raw_df, summary_df, calculated_df, normalized_df, places_df, final_df, output_path, statistics_df)
             else:
                 # Используем pandas ExcelWriter без форматирования
-                self.logger.warning("openpyxl и xlsxwriter недоступны, создается файл без форматирования", "ExcelFormatter", "create_formatted_excel")
+                self.logger.warning("openpyxl недоступен, создается файл без форматирования", "ExcelFormatter", "create_formatted_excel")
                 # Пробуем использовать доступный engine
                 try:
                     with pd.ExcelWriter(output_path, engine='openpyxl') as writer:
@@ -2892,9 +3239,9 @@ class ExcelFormatter:
                         final_df.to_excel(writer, sheet_name="Итог", index=False)
                         if statistics_df is not None:
                             statistics_df.to_excel(writer, sheet_name="Статистика", index=False, header=False)
-                except:
+                except Exception as e:
                     try:
-                        with pd.ExcelWriter(output_path, engine='xlsxwriter') as writer:
+                        with pd.ExcelWriter(output_path) as writer:
                             raw_df.to_excel(writer, sheet_name="RAW", index=False)
                             summary_df.to_excel(writer, sheet_name="Исходник", index=False)
                             calculated_df.to_excel(writer, sheet_name="Расчет", index=False)
@@ -2948,9 +3295,10 @@ class ExcelFormatter:
             final_df: DataFrame с итоговыми данными
             output_path: Путь для сохранения файла
         """
-        self.logger.info(f"Использование openpyxl для форматирования", "ExcelFormatter", "_create_with_openpyxl")
+        self.logger.info("Использование openpyxl для форматирования")
         
         # Сначала сохраняем DataFrame в Excel через pandas
+        self.logger.info("Сохранение данных в Excel...")
         with pd.ExcelWriter(output_path, engine='openpyxl') as writer:
             raw_df.to_excel(writer, sheet_name="RAW", index=False)
             summary_df.to_excel(writer, sheet_name="Исходник", index=False)
@@ -2962,6 +3310,7 @@ class ExcelFormatter:
                 statistics_df.to_excel(writer, sheet_name="Статистика", index=False, header=False)
         
         # Теперь форматируем файл
+        self.logger.info("Начало форматирования Excel файла...")
         wb = load_workbook(output_path)
         
         # Форматируем все листы
@@ -2977,35 +3326,49 @@ class ExcelFormatter:
         if statistics_df is not None:
             sheet_data["Статистика"] = statistics_df
         
-        for sheet_name, df in sheet_data.items():
+        total_sheets = len(sheet_data)
+        from time import time
+        last_progress_time = time()
+        PROGRESS_INTERVAL = 15  # Логируем прогресс каждые 15 секунд
+        
+        for sheet_idx, (sheet_name, df) in enumerate(sheet_data.items(), 1):
             if sheet_name not in wb.sheetnames:
                 continue
+            
+            current_time = time()
+            if current_time - last_progress_time >= PROGRESS_INTERVAL:
+                self.logger.info(f"Форматирование листа '{sheet_name}' ({sheet_idx}/{total_sheets})...")
+                last_progress_time = current_time
             
             ws = wb[sheet_name]
             if sheet_name == "Статистика":
                 # Для листа статистики используем специальное форматирование
                 self._format_statistics_sheet_openpyxl(ws, df)
             else:
-                self._format_sheet_openpyxl(ws, df)
+                self._format_sheet_openpyxl(ws, df, sheet_name, sheet_idx, total_sheets)
         
         # Сохраняем файл
+        self.logger.info("Сохранение форматированного файла...")
         wb.save(output_path)
-        self.logger.info(f"Файл {output_path} успешно создан с форматированием (openpyxl)", "ExcelFormatter", "_create_with_openpyxl")
+        self.logger.info(f"Файл {output_path} успешно создан с форматированием (openpyxl)")
     
-    def _format_sheet_openpyxl(self, ws, df: pd.DataFrame) -> None:
+    def _format_sheet_openpyxl(self, ws, df: pd.DataFrame, sheet_name: str = "", sheet_idx: int = 0, total_sheets: int = 0) -> None:
         """
-        Форматирует лист Excel используя openpyxl.
+        Форматирует лист Excel используя openpyxl (оптимизированная версия).
         
         Args:
             ws: Рабочий лист openpyxl
             df: DataFrame с данными
+            sheet_name: Имя листа (для логирования)
+            sheet_idx: Номер листа (для логирования)
+            total_sheets: Всего листов (для логирования)
         """
+        from time import time
+        last_progress_time = time()
+        PROGRESS_INTERVAL = 15  # Логируем прогресс каждые 15 секунд
         
         # Фиксируем первую строку и 4 колонку (после ФИО)
-        # freeze_panes использует адрес ячейки, начиная с которой будет прокрутка
-        # E2 означает: строка 2 (заголовок зафиксирован), колонка E (5-я, после ФИО)
         ws.freeze_panes = "E2"
-        self.logger.debug("Первая строка и 4 колонка зафиксированы", "ExcelFormatter", "_format_sheet_openpyxl")
         
         # Форматируем заголовки (первая строка)
         header_fill = PatternFill(start_color="D3D3D3", end_color="D3D3D3", fill_type="solid")
@@ -3017,9 +3380,8 @@ class ExcelFormatter:
             cell.fill = header_fill
             cell.alignment = header_alignment
         
-        self.logger.debug("Заголовки отформатированы", "ExcelFormatter", "_create_with_openpyxl")
-        
-        # Настраиваем ширину колонок
+        # ОПТИМИЗАЦИЯ: Настраиваем ширину колонок (без избыточных DEBUG логов)
+        total_cols = len(df.columns)
         for col_idx, column in enumerate(ws.iter_cols(min_row=1, max_row=1), start=1):
             col_letter = get_column_letter(col_idx)
             
@@ -3027,23 +3389,26 @@ class ExcelFormatter:
             max_length = 0
             for cell in column:
                 if cell.value:
-                    cell_value = str(cell.value)
-                    max_length = max(max_length, len(cell_value))
+                    max_length = max(max_length, len(str(cell.value)))
             
             # Учитываем содержимое всех ячеек в колонке (первые 100 строк для производительности)
             for row in ws.iter_rows(min_row=2, max_row=min(102, ws.max_row), min_col=col_idx, max_col=col_idx):
                 for cell in row:
                     if cell.value:
-                        cell_value = str(cell.value)
-                        max_length = max(max_length, len(cell_value))
+                        max_length = max(max_length, len(str(cell.value)))
             
             # Применяем ограничения
             width = max(self.min_width, min(max_length + 2, self.max_width))
             ws.column_dimensions[col_letter].width = width
             
-            self.logger.debug(f"Колонка {col_letter} установлена ширина {width}", "ExcelFormatter", "_create_with_openpyxl")
+            # Логируем прогресс только для больших листов и не чаще чем раз в 15 сек
+            if total_cols > 20 and col_idx % 10 == 0:
+                current_time = time()
+                if current_time - last_progress_time >= PROGRESS_INTERVAL:
+                    self.logger.info(f"Форматирование '{sheet_name}': колонка {col_idx}/{total_cols}")
+                    last_progress_time = current_time
         
-        # Настраиваем выравнивание и форматирование для всех ячеек
+        # ОПТИМИЗАЦИЯ: Настраиваем выравнивание и форматирование для всех ячеек (батчами)
         # Определяем базовые колонки (текстовые)
         base_columns = ["Табельный", "ТБ", "ГОСБ", "ФИО"]
         
@@ -3054,54 +3419,91 @@ class ExcelFormatter:
         # Текстовый формат для сохранения лидирующих нулей
         text_format = "@"
         
-        for row_idx, row in enumerate(ws.iter_rows(min_row=2), start=2):
-            for col_idx, cell in enumerate(row, start=1):
-                col_name = ws.cell(row=1, column=col_idx).value
-                
-                # Если это колонка "Табельный" - текстовый формат для сохранения лидирующих нулей
-                if col_name == "Табельный":
-                    cell.number_format = text_format
-                    cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
-                # Если это другие базовые колонки - текстовое выравнивание
-                elif col_name in base_columns:
-                    cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
-                # Если это колонка Score - число с разделителем разрядов и двумя знаками после запятой
-                elif col_name and col_name.startswith("Score"):
-                    if pd.notna(cell.value) and isinstance(cell.value, (int, float)):
-                        cell.number_format = number_format
-                        cell.alignment = Alignment(horizontal="right", vertical="center")
-                    else:
-                        cell.alignment = Alignment(horizontal="right", vertical="center")
-                # Если это колонка нормализованных значений - число с разделителем разрядов и двумя знаками после запятой
-                elif col_name and "_norm" in col_name:
-                    if pd.notna(cell.value) and isinstance(cell.value, (int, float)):
-                        cell.number_format = number_format
-                        cell.alignment = Alignment(horizontal="right", vertical="center")
-                    else:
-                        cell.alignment = Alignment(horizontal="right", vertical="center")
-                # Если это колонка "Место" - целое число с разделителем разрядов
-                elif col_name and col_name.startswith("Место"):
-                    if pd.notna(cell.value) and isinstance(cell.value, (int, float)):
-                        cell.number_format = rank_format
-                        cell.alignment = Alignment(horizontal="right", vertical="center")
-                    else:
-                        cell.alignment = Alignment(horizontal="right", vertical="center")
-                # Если это колонка "Лучший месяц" - текстовое выравнивание
-                elif col_name == "Лучший месяц":
-                    cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
-                else:
-                    # Для числовых колонок - числовой формат и выравнивание по правому краю
-                    if pd.notna(cell.value) and isinstance(cell.value, (int, float)):
-                        cell.number_format = number_format
-                        cell.alignment = Alignment(horizontal="right", vertical="center")
-                    else:
-                        cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+        # Создаем объекты выравнивания один раз (переиспользуем)
+        align_left = Alignment(horizontal="left", vertical="center", wrap_text=True)
+        align_right = Alignment(horizontal="right", vertical="center")
         
-        self.logger.debug("Выравнивание и форматирование настроены", "ExcelFormatter", "_format_sheet_openpyxl")
+        # ОПТИМИЗАЦИЯ: Определяем типы колонок заранее (один раз)
+        col_types = {}
+        for col_idx in range(1, len(df.columns) + 1):
+            col_name = ws.cell(row=1, column=col_idx).value
+            if col_name == "Табельный":
+                col_types[col_idx] = "tab"
+            elif col_name in base_columns:
+                col_types[col_idx] = "text"
+            elif col_name and col_name.startswith("Score"):
+                col_types[col_idx] = "score"
+            elif col_name and "_norm" in col_name:
+                col_types[col_idx] = "norm"
+            elif col_name and col_name.startswith("Место"):
+                col_types[col_idx] = "rank"
+            elif col_name == "Лучший месяц":
+                col_types[col_idx] = "text"
+            else:
+                col_types[col_idx] = "number"
+        
+        # ОПТИМИЗАЦИЯ: Для RAW листа используем упрощенное форматирование (только заголовки)
+        # Для остальных листов - полное форматирование
+        if sheet_name == "RAW":
+            # Для RAW листа: форматируем только заголовки (без обработки каждой ячейки)
+            # Это значительно ускоряет форматирование для больших листов (с 44 минут до ~1 минуты)
+            self.logger.info(f"Форматирование листа '{sheet_name}': упрощенный режим (только заголовки)")
+            # Для RAW листа не форматируем ячейки - только заголовки уже отформатированы выше
+        else:
+            # Для остальных листов: полное форматирование
+            total_rows = len(df)
+            if total_rows == 0:
+                ws.auto_filter.ref = ws.dimensions
+                return
+            
+            batch_size = 1000  # Обрабатываем по 1000 строк за раз
+            processed_rows = 0
+            
+            for batch_start in range(2, ws.max_row + 1, batch_size):
+                batch_end = min(batch_start + batch_size, ws.max_row + 1)
+                
+                for row_idx in range(batch_start, batch_end):
+                    row = ws[row_idx]
+                    for col_idx, cell in enumerate(row, start=1):
+                        if col_idx not in col_types:
+                            continue
+                        
+                        col_type = col_types[col_idx]
+                        
+                        if col_type == "tab":
+                            cell.number_format = text_format
+                            cell.alignment = align_left
+                        elif col_type == "text":
+                            cell.alignment = align_left
+                        elif col_type == "score" or col_type == "norm":
+                            if pd.notna(cell.value) and isinstance(cell.value, (int, float)):
+                                cell.number_format = number_format
+                                cell.alignment = align_right
+                            else:
+                                cell.alignment = align_right
+                        elif col_type == "rank":
+                            if pd.notna(cell.value) and isinstance(cell.value, (int, float)):
+                                cell.number_format = rank_format
+                                cell.alignment = align_right
+                            else:
+                                cell.alignment = align_right
+                        else:  # number
+                            if pd.notna(cell.value) and isinstance(cell.value, (int, float)):
+                                cell.number_format = number_format
+                                cell.alignment = align_right
+                            else:
+                                cell.alignment = align_left
+                
+                processed_rows = batch_end - 1
+                # Логируем прогресс каждые 15 секунд
+                current_time = time()
+                if current_time - last_progress_time >= PROGRESS_INTERVAL:
+                    progress_pct = (processed_rows / total_rows) * 100 if total_rows > 0 else 0
+                    self.logger.info(f"Форматирование '{sheet_name}': обработано {processed_rows}/{total_rows} строк ({progress_pct:.1f}%)")
+                    last_progress_time = current_time
         
         # Включаем автофильтр
         ws.auto_filter.ref = ws.dimensions
-        self.logger.debug("Автофильтр включен", "ExcelFormatter", "_format_sheet_openpyxl")
     
     def _format_statistics_sheet_openpyxl(self, ws, df: pd.DataFrame) -> None:
         """
@@ -3176,259 +3578,7 @@ class ExcelFormatter:
         
         self.logger.debug("Лист 'Статистика' отформатирован", "ExcelFormatter", "_format_statistics_sheet_openpyxl")
     
-    def _create_with_xlsxwriter(self, raw_df: pd.DataFrame, summary_df: pd.DataFrame, calculated_df: pd.DataFrame,
-                                normalized_df: pd.DataFrame, places_df: pd.DataFrame, final_df: pd.DataFrame,
-                                output_path: str, statistics_df: Optional[pd.DataFrame] = None) -> None:
-        """
-        Создает Excel файл с форматированием используя xlsxwriter.
-        
-        Args:
-            summary_df: DataFrame с исходными данными
-            calculated_df: DataFrame с расчетными данными
-            normalized_df: DataFrame с нормализованными данными
-            places_df: DataFrame с Score и рангами
-            final_df: DataFrame с итоговыми данными
-            output_path: Путь для сохранения файла
-        """
-        # Создаем рабочую книгу
-        workbook = xlsxwriter.Workbook(output_path)
-
-        # Создаем листы
-        worksheet_raw = workbook.add_worksheet("RAW")
-        worksheet_summary = workbook.add_worksheet("Исходник")
-        worksheet_calc = workbook.add_worksheet("Расчет")
-        worksheet_norm = workbook.add_worksheet("Нормализация")
-        worksheet_places = workbook.add_worksheet("Места и выбор")
-        worksheet_final = workbook.add_worksheet("Итог")
-        
-        # Форматируем все листы
-        self._format_sheet_xlsxwriter(workbook, worksheet_raw, raw_df)
-        self._format_sheet_xlsxwriter(workbook, worksheet_summary, summary_df)
-        self._format_sheet_xlsxwriter(workbook, worksheet_calc, calculated_df)
-        self._format_sheet_xlsxwriter(workbook, worksheet_norm, normalized_df)
-        self._format_sheet_xlsxwriter(workbook, worksheet_places, places_df)
-        self._format_sheet_xlsxwriter(workbook, worksheet_final, final_df)
-        
-        if statistics_df is not None:
-            worksheet_statistics = workbook.add_worksheet("Статистика")
-            # Записываем данные в лист статистики
-            for row_idx, (_, row) in enumerate(statistics_df.iterrows(), start=0):
-                for col_idx, value in enumerate(row):
-                    if pd.notna(value):
-                        worksheet_statistics.write(row_idx, col_idx, value)
-            # Форматируем лист статистики
-            self._format_statistics_sheet_xlsxwriter(workbook, worksheet_statistics, statistics_df)
-
-        # Закрываем рабочую книгу
-        workbook.close()
-        
-        self.logger.info(f"Файл {output_path} успешно создан с форматированием (xlsxwriter)", "ExcelFormatter", "_create_with_xlsxwriter")
-    
-    def _format_sheet_xlsxwriter(self, workbook, worksheet, df: pd.DataFrame) -> None:
-        """
-        Форматирует лист Excel используя xlsxwriter.
-        
-        Args:
-            workbook: Рабочая книга xlsxwriter
-            worksheet: Рабочий лист xlsxwriter
-            df: DataFrame с данными
-        """
-        
-        # Формат для заголовков
-        header_format = workbook.add_format({
-            'bold': True,
-            'font_size': 12,
-            'align': 'center',
-            'valign': 'vcenter',
-            'text_wrap': True,
-            'bg_color': '#D3D3D3'
-        })
-        
-        # Формат для текстовых данных
-        text_format = workbook.add_format({
-            'align': 'left',
-            'valign': 'vcenter',
-            'text_wrap': True
-        })
-        
-        # Формат для колонки "Табельный": текстовый формат для сохранения лидирующих нулей
-        tab_number_format = workbook.add_format({
-            'num_format': '@',  # Текстовый формат
-            'align': 'left',
-            'valign': 'vcenter'
-        })
-        
-        # Формат для числовых данных: разделитель разрядов и два знака после запятой
-        number_format = workbook.add_format({
-            'num_format': '#,##0.00',
-            'align': 'right',
-            'valign': 'vcenter'
-        })
-        
-        # Формат для рангов: целое число с разделителем разрядов (без дробной части)
-        rank_format = workbook.add_format({
-            'num_format': '#,##0',
-            'align': 'right',
-            'valign': 'vcenter'
-        })
-        
-        # Определяем базовые колонки (текстовые)
-        base_columns = ["Табельный", "ТБ", "ГОСБ", "ФИО"]
-        
-        # Записываем заголовки
-        for col_idx, col_name in enumerate(df.columns):
-            worksheet.write(0, col_idx, col_name, header_format)
-            # Вычисляем и устанавливаем ширину колонки
-            width = self._calculate_column_width(df, col_name)
-            worksheet.set_column(col_idx, col_idx, width)
-        
-        # Записываем данные
-        for row_idx, (_, row) in enumerate(df.iterrows(), start=1):
-            for col_idx, value in enumerate(row):
-                col_name = df.columns[col_idx]
-                
-                # Выбираем формат в зависимости от типа колонки
-                if col_name == "Табельный":
-                    # Колонка "Табельный": текстовый формат для сохранения лидирующих нулей
-                    if pd.notna(value):
-                        worksheet.write(row_idx, col_idx, str(value), tab_number_format)
-                    else:
-                        worksheet.write(row_idx, col_idx, '', tab_number_format)
-                elif col_name in base_columns:
-                    # Другие текстовые колонки
-                    if pd.notna(value):
-                        worksheet.write(row_idx, col_idx, value, text_format)
-                    else:
-                        worksheet.write(row_idx, col_idx, '', text_format)
-                elif col_name and col_name.startswith("Score"):
-                    # Колонка Score: число с разделителем разрядов и двумя знаками после запятой
-                    if pd.notna(value) and isinstance(value, (int, float)):
-                        worksheet.write(row_idx, col_idx, value, number_format)
-                    else:
-                        worksheet.write(row_idx, col_idx, 0, number_format)
-                elif col_name and "_norm" in col_name:
-                    # Колонка нормализованных значений: число с разделителем разрядов и двумя знаками после запятой
-                    if pd.notna(value) and isinstance(value, (int, float)):
-                        worksheet.write(row_idx, col_idx, value, number_format)
-                    else:
-                        worksheet.write(row_idx, col_idx, 0, number_format)
-                elif col_name and col_name.startswith("Место"):
-                    # Колонка "Место": целое число с разделителем разрядов
-                    if pd.notna(value) and isinstance(value, (int, float)):
-                        worksheet.write(row_idx, col_idx, int(value), rank_format)
-                    else:
-                        worksheet.write(row_idx, col_idx, 0, rank_format)
-                elif col_name == "Лучший месяц":
-                    # Колонка "Лучший месяц": текстовый формат
-                    if pd.notna(value):
-                        worksheet.write(row_idx, col_idx, str(value), text_format)
-                    else:
-                        worksheet.write(row_idx, col_idx, '', text_format)
-                else:
-                    # Числовые колонки
-                    if pd.notna(value) and isinstance(value, (int, float)):
-                        worksheet.write(row_idx, col_idx, value, number_format)
-                    elif pd.notna(value):
-                        worksheet.write(row_idx, col_idx, value, text_format)
-                    else:
-                        worksheet.write(row_idx, col_idx, 0, number_format)
-        
-        # Фиксируем первую строку и 4 колонку (после ФИО)
-        # freeze_panes(row, col) - строка 1 (индекс 1), колонка 4 (индекс 4, после ФИО)
-        worksheet.freeze_panes(1, 4)
-        
-        # Включаем автофильтр
-        worksheet.autofilter(0, 0, len(df), len(df.columns) - 1)
-    
-    def _format_statistics_sheet_xlsxwriter(self, workbook, worksheet, df: pd.DataFrame) -> None:
-        """
-        Форматирует лист статистики используя xlsxwriter.
-        
-        Args:
-            workbook: Рабочая книга xlsxwriter
-            worksheet: Рабочий лист xlsxwriter
-            df: DataFrame со статистикой
-        """
-        # Формат для заголовков разделов
-        section_format = workbook.add_format({
-            'bold': True,
-            'font_size': 14,
-            'bg_color': '#E6E6FA',
-            'font_color': '#000080',
-            'align': 'left',
-            'valign': 'vcenter',
-            'text_wrap': True
-        })
-        
-        # Формат для заголовков таблиц
-        table_header_format = workbook.add_format({
-            'bold': True,
-            'font_size': 11,
-            'bg_color': '#D3D3D3',
-            'align': 'center',
-            'valign': 'vcenter',
-            'text_wrap': True
-        })
-        
-        # Формат для текста
-        text_format = workbook.add_format({
-            'align': 'left',
-            'valign': 'vcenter',
-            'text_wrap': True
-        })
-        
-        # Формат для чисел
-        number_format = workbook.add_format({
-            'num_format': '#,##0',
-            'align': 'right',
-            'valign': 'vcenter'
-        })
-        
-        # Перезаписываем данные с форматированием
-        for row_idx, (_, row) in enumerate(df.iterrows(), start=0):
-            for col_idx, value in enumerate(row):
-                if pd.isna(value) or (isinstance(value, str) and value.strip() == ""):
-                    continue
-                
-                # Определяем формат
-                cell_format = text_format
-                
-                # Проверяем, является ли это заголовком раздела (первая колонка заполнена, вторая пустая)
-                if col_idx == 0 and len(row) > 1:
-                    next_value = row.iloc[col_idx + 1] if col_idx + 1 < len(row) else None
-                    if pd.isna(next_value) or (isinstance(next_value, str) and str(next_value).strip() == ""):
-                        # Это заголовок раздела
-                        cell_format = section_format
-                    elif row_idx == 0:
-                        # Первая строка - заголовок таблицы
-                        cell_format = table_header_format
-                elif col_idx > 0 and row_idx == 0:
-                    # Первая строка, не первая колонка - заголовок таблицы
-                    cell_format = table_header_format
-                else:
-                    # Проверяем, является ли значение числом
-                    try:
-                        if isinstance(value, (int, float)) or (isinstance(value, str) and value.replace(',', '').replace('.', '').isdigit()):
-                            num_value = float(str(value).replace(',', ''))
-                            cell_format = number_format
-                        else:
-                            cell_format = text_format
-                    except (ValueError, TypeError):
-                        cell_format = text_format
-                
-                worksheet.write(row_idx, col_idx, value, cell_format)
-        
-        # Настраиваем ширину колонок
-        for col_idx in range(len(df.columns)):
-            max_length = 0
-            for row_idx in range(min(100, len(df))):
-                value = df.iloc[row_idx, col_idx]
-                if pd.notna(value):
-                    max_length = max(max_length, len(str(value)))
-            width = max(15, min(max_length + 2, 100))
-            worksheet.set_column(col_idx, col_idx, width)
-        
-        self.logger.debug("Лист 'Статистика' отформатирован (xlsxwriter)", "ExcelFormatter", "_format_statistics_sheet_xlsxwriter")
+    # Методы xlsxwriter удалены - используется только openpyxl
 
 
 # ============================================================================
