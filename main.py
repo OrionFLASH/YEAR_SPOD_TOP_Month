@@ -58,6 +58,172 @@ ENABLE_CHUNKING = False  # True - использовать chunking для бо�
 CHUNK_SIZE = 50000  # Размер chunk для чтения больших файлов (строк)
 CHUNKING_THRESHOLD_MB = 200  # Порог размера файла для chunking (МБ) - если файл больше, используем chunking
 
+# Параметры детального логирования
+DEBUG_TAB_NUMBER: Optional[str] = None  # Табельный номер для детального логирования (например, "12345678" или None для отключения)
+# Если указан, в лог будет записываться подробная информация о всех операциях с этим табельным номером
+
+# Параметр выбора режима данных
+DATA_MODE: str = "TEST"  # "TEST" - тестовые данные, "PROM" - пром данные
+# Определяет, какие columns использовать из конфигурации (columns_test или columns_prom)
+
+
+# ============================================================================
+# КОНФИГУРАЦИЯ МАППИНГА ТЕРРИТОРИАЛЬНЫХ БАНКОВ (ТБ)
+# ============================================================================
+
+@dataclass
+class TBMapping:
+    """
+    Маппинг для территориального банка (ТБ).
+    
+    Параметры:
+        short_name_en: Короткое имя на английском (например, "BB", "VVB", "DVB")
+        short_name: Короткое имя, которое используется в файлах и расчетах (например, "ББ", "ВВБ", "ДВБ")
+        aliases: Массив алиасов (короткое и длинное имя, например, ["ББ", "Байкальский банк"])
+    
+    Примеры:
+        TBMapping(short_name_en="BB", short_name="ББ", aliases=["ББ", "Байкальский банк"])
+        TBMapping(short_name_en="VVB", short_name="ВВБ", aliases=["ВВБ", "Волго-Вятский банк"])
+    """
+    short_name_en: str  # Короткое имя на английском
+    short_name: str     # Короткое имя, используемое в файлах и расчетах
+    aliases: List[str]  # Массив алиасов (короткое и длинное имя)
+
+
+# Маппинг всех территориальных банков
+TB_MAPPINGS: Dict[str, TBMapping] = {
+    "BB": TBMapping(
+        short_name_en="BB",
+        short_name="ББ",
+        aliases=["ББ", "Байкальский банк", "BB"]
+    ),
+    "VVB": TBMapping(
+        short_name_en="VVB",
+        short_name="ВВБ",
+        aliases=["ВВБ", "Волго-Вятский банк", "VVB"]
+    ),
+    "DVB": TBMapping(
+        short_name_en="DVB",
+        short_name="ДВБ",
+        aliases=["ДВБ", "Дальневосточный банк", "DVB"]
+    ),
+    "MB": TBMapping(
+        short_name_en="MB",
+        short_name="МБ",
+        aliases=["МБ", "Московский банк", "MB"]
+    ),
+    "PVB": TBMapping(
+        short_name_en="PVB",
+        short_name="ПВБ",
+        aliases=["ПВБ", "Поволжский банк", "PVB"]
+    ),
+    "SZB": TBMapping(
+        short_name_en="SZB",
+        short_name="СЗБ",
+        aliases=["СЗБ", "Северо-Западный банк", "SZB"]
+    ),
+    "SIB": TBMapping(
+        short_name_en="SIB",
+        short_name="СИБ",
+        aliases=["СИБ", "Сибирский банк", "SIB"]
+    ),
+    "SRB": TBMapping(
+        short_name_en="SRB",
+        short_name="СРБ",
+        aliases=["СРБ", "Среднерусский банк", "SRB"]
+    ),
+    "UB": TBMapping(
+        short_name_en="UB",
+        short_name="УБ",
+        aliases=["УБ", "Уральский банк", "UB"]
+    ),
+    "CA": TBMapping(
+        short_name_en="CA",
+        short_name="ЦА",
+        aliases=["ЦА", "Центральный аппарат", "CA"]
+    ),
+    "CZB": TBMapping(
+        short_name_en="CZB",
+        short_name="ЦЧБ",
+        aliases=["ЦЧБ", "Центрально-Черноземный банк", "CZB"]
+    ),
+    "SWB": TBMapping(
+        short_name_en="SWB",
+        short_name="ЮЗБ",
+        aliases=["ЮЗБ", "Юго-Западный банк", "SWB"]
+    ),
+}
+
+
+def normalize_tb_value(value: Any) -> Optional[str]:
+    """
+    Нормализует значение ТБ, приводя его к стандартному короткому имени.
+    
+    Ищет значение в алиасах всех ТБ и возвращает стандартное короткое имя.
+    Если значение не найдено, возвращает None.
+    
+    Args:
+        value: Значение ТБ из файла (может быть любым алиасом)
+    
+    Returns:
+        Optional[str]: Стандартное короткое имя ТБ или None, если не найдено
+    
+    Примеры:
+        normalize_tb_value("ББ") -> "ББ"
+        normalize_tb_value("Байкальский банк") -> "ББ"
+        normalize_tb_value("BB") -> "ББ" (если "BB" есть в алиасах)
+        normalize_tb_value("Неизвестный") -> None
+    """
+    if value is None or pd.isna(value):
+        return None
+    
+    # Преобразуем в строку и очищаем
+    value_str = str(value).strip()
+    if not value_str or value_str.lower() in ['nan', 'none', '']:
+        return None
+    
+    # Ищем в алиасах всех ТБ
+    for tb_mapping in TB_MAPPINGS.values():
+        # Проверяем точное совпадение (без учета регистра)
+        for alias in tb_mapping.aliases:
+            if value_str.lower() == alias.lower():
+                return tb_mapping.short_name
+    
+    # Если не найдено, возвращаем None
+    return None
+
+
+def get_tb_short_name_en(short_name: str) -> Optional[str]:
+    """
+    Получает короткое имя ТБ на английском по короткому имени на русском.
+    
+    Args:
+        short_name: Короткое имя ТБ на русском (например, "ББ", "ВВБ")
+    
+    Returns:
+        Optional[str]: Короткое имя на английском (например, "BB", "VVB") или None
+    """
+    for tb_mapping in TB_MAPPINGS.values():
+        if tb_mapping.short_name == short_name:
+            return tb_mapping.short_name_en
+    return None
+
+
+def get_tb_aliases(short_name: str) -> Optional[List[str]]:
+    """
+    Получает список всех алиасов для ТБ по короткому имени.
+    
+    Args:
+        short_name: Короткое имя ТБ на русском (например, "ББ", "ВВБ")
+    
+    Returns:
+        Optional[List[str]]: Список алиасов или None
+    """
+    for tb_mapping in TB_MAPPINGS.values():
+        if tb_mapping.short_name == short_name:
+            return tb_mapping.aliases.copy()
+    return None
+
 
 # ============================================================================
 # КОНФИГУРАЦИЯ ЗАГРУЗКИ ФАЙЛОВ
@@ -87,6 +253,25 @@ class DropRule:
     remove_unconditionally: bool = True
     check_by_inn: bool = False
     check_by_tn: bool = False
+
+
+@dataclass
+class TBMapping:
+    """
+    Маппинг для территориального банка (ТБ).
+    
+    Параметры:
+        short_name_en: Короткое имя на английском (например, "BB", "VVB", "DVB")
+        short_name: Короткое имя, которое используется в файлах и расчетах (например, "ББ", "ВВБ", "ДВБ")
+        aliases: Массив алиасов (короткое и длинное имя, например, ["ББ", "Байкальский банк"])
+    
+    Примеры:
+        TBMapping(short_name_en="BB", short_name="ББ", aliases=["ББ", "Байкальский банк"])
+        TBMapping(short_name_en="VVB", short_name="ВВБ", aliases=["ВВБ", "Волго-Вятский банк"])
+    """
+    short_name_en: str  # Короткое имя на английском
+    short_name: str     # Короткое имя, используемое в файлах и расчетах
+    aliases: List[str]  # Массив алиасов (короткое и длинное имя)
 
 
 @dataclass
@@ -139,7 +324,7 @@ class FileItem:
     # Название листа для чтения (если None, используется default_sheet из группы)
     sheet: Optional[str] = None
     
-    # Колонки для этого файла (если пустой массив [], используются из defaults.columns)
+    # Колонки для этого файла (если пустой массив [], используются из defaults.columns_test или defaults.columns_prom в зависимости от DATA_MODE)
     # Формат: [{"alias": "tb", "source": "Короткое ТБ"}, ...]
     columns: List[Dict[str, str]] = field(default_factory=list)
     
@@ -178,8 +363,11 @@ class DefaultsConfig:
     
     Все эти настройки используются, если в FileItem не указаны индивидуальные значения.
     """
-    # Колонки по умолчанию: маппинг source (имя в Excel) -> alias (внутреннее имя)
-    columns: List[Dict[str, str]] = field(default_factory=list)
+    # Колонки по умолчанию для тестовых данных: маппинг source (имя в Excel) -> alias (внутреннее имя)
+    columns_test: List[Dict[str, str]] = field(default_factory=list)
+    
+    # Колонки по умолчанию для пром данных: маппинг source (имя в Excel) -> alias (внутреннее имя)
+    columns_prom: List[Dict[str, str]] = field(default_factory=list)
     
     # Правила удаления строк по умолчанию (drop_rules)
     drop_rules: List[DropRule] = field(default_factory=list)
@@ -290,13 +478,13 @@ class ConfigManager:
                 FileItem(key="OD_12", label="OD Декабрь", file_name="M-12_OD.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}, calculation_type=None, first_month_value=None, three_periods_first_months=None),
             ],
             defaults=DefaultsConfig(
-                # Колонки по умолчанию: маппинг source (имя в Excel) -> alias (внутреннее имя)
+                # Колонки для тестовых данных: маппинг source (имя в Excel) -> alias (внутреннее имя)
                 # Формат: [{"alias": "внутреннее_имя", "source": "Имя в Excel"}, ...]
                 # Примеры:
                 #   {"alias": "tab_number", "source": "Табельный номер"}
                 #   {"alias": "tb", "source": "Короткое ТБ"}
                 #   {"alias": "indicator", "source": "Факт"}
-                columns=[
+                columns_test=[
                     {"alias": "tab_number", "source": "Табельный номер"},
                     {"alias": "tb", "source": "Короткое ТБ"},
                     {"alias": "gosb", "source": "Полное ГОСБ"},
@@ -304,15 +492,15 @@ class ConfigManager:
                     {"alias": "fio", "source": "ФИО"},
                     {"alias": "indicator", "source": "Факт"}
                 ],
-                # ВАРИАНТ КОЛОНОК ДЛЯ ПРОМ ДАННЫХ (закомментировано, раскомментировать для пром данных):
-                #columns=[
-                #    {"alias": "tab_number", "source": "Таб (8)"},
-                #    {"alias": "tb", "source": "ТБ"},
-                #    {"alias": "gosb", "source": "ГОСБ"},
-                #    {"alias": "client_id", "source": "ИНН"},
-                #    {"alias": "fio", "source": "КМ"},
-                #    {"alias": "indicator", "source": "2025, руб."}
-                #],
+                # Колонки для пром данных: маппинг source (имя в Excel) -> alias (внутреннее имя)
+                columns_prom=[
+                    {"alias": "tab_number", "source": "Таб (8)"},
+                    {"alias": "tb", "source": "ТБ"},
+                    {"alias": "gosb", "source": "ГОСБ"},
+                    {"alias": "client_id", "source": "ИНН"},
+                    {"alias": "fio", "source": "КМ"},
+                    {"alias": "indicator", "source": "2025, руб."}
+                ],
                 
                 # Правила удаления строк по умолчанию (drop_rules)
                 # Формат: [DropRule(alias="...", values=[...], ...), ...]
@@ -420,13 +608,13 @@ class ConfigManager:
                 FileItem(key="RA_12", label="RA Декабрь", file_name="M-12_RA.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}, calculation_type=None, first_month_value=None, three_periods_first_months=None),
             ],
             defaults=DefaultsConfig(
-                # Колонки по умолчанию: маппинг source (имя в Excel) -> alias (внутреннее имя)
+                # Колонки для тестовых данных: маппинг source (имя в Excel) -> alias (внутреннее имя)
                 # Формат: [{"alias": "внутреннее_имя", "source": "Имя в Excel"}, ...]
                 # Примеры:
                 #   {"alias": "tab_number", "source": "Табельный номер"}
                 #   {"alias": "tb", "source": "Короткое ТБ"}
                 #   {"alias": "indicator", "source": "Факт"}
-                columns=[
+                columns_test=[
                     {"alias": "tab_number", "source": "Табельный номер"},
                     {"alias": "tb", "source": "Короткое ТБ"},
                     {"alias": "gosb", "source": "Полное ГОСБ"},
@@ -434,15 +622,15 @@ class ConfigManager:
                     {"alias": "fio", "source": "ФИО"},
                     {"alias": "indicator", "source": "Факт"}
                 ],
-                # ВАРИАНТ КОЛОНОК ДЛЯ ПРОМ ДАННЫХ (закомментировано, раскомментировать для пром данных):
-                #columns=[
-                #    {"alias": "tab_number", "source": "Таб. номер ВКО"},
-                #    {"alias": "tb", "source": "ТБ"},
-                #    {"alias": "gosb", "source": "ГОСБ"},
-                #    {"alias": "client_id", "source": "ИНН"},
-                #    {"alias": "fio", "source": "ВКО"},
-                #    {"alias": "indicator", "source": "СО РА (M). план курс"}
-                #],
+                # Колонки для пром данных: маппинг source (имя в Excel) -> alias (внутреннее имя)
+                columns_prom=[
+                    {"alias": "tab_number", "source": "Таб. номер ВКО"},
+                    {"alias": "tb", "source": "ТБ"},
+                    {"alias": "gosb", "source": "ГОСБ"},
+                    {"alias": "client_id", "source": "ИНН"},
+                    {"alias": "fio", "source": "ВКО"},
+                    {"alias": "indicator", "source": "СО РА (M). план курс"}
+                ],
                 # Правила удаления строк по умолчанию (drop_rules)
                 # Формат: [DropRule(alias="...", values=[...], ...), ...]
                 # Параметры DropRule:
@@ -502,13 +690,13 @@ class ConfigManager:
                 FileItem(key="PS_12", label="PS Декабрь", file_name="M-12_PS.xlsx", sheet=None, columns=[], filters={"drop_rules": [], "in_rules": []}, calculation_type=None, first_month_value=None, three_periods_first_months=None),
             ],
             defaults=DefaultsConfig(
-                # Колонки по умолчанию: маппинг source (имя в Excel) -> alias (внутреннее имя)
+                # Колонки для тестовых данных: маппинг source (имя в Excel) -> alias (внутреннее имя)
                 # Формат: [{"alias": "внутреннее_имя", "source": "Имя в Excel"}, ...]
                 # Примеры:
                 #   {"alias": "tab_number", "source": "Табельный номер"}
                 #   {"alias": "tb", "source": "Короткое ТБ"}
                 #   {"alias": "indicator", "source": "Факт"}
-                columns=[
+                columns_test=[
                     {"alias": "tab_number", "source": "Табельный номер"},
                     {"alias": "tb", "source": "Короткое ТБ"},
                     {"alias": "gosb", "source": "Полное ГОСБ"},
@@ -516,15 +704,15 @@ class ConfigManager:
                     {"alias": "fio", "source": "ФИО"},
                     {"alias": "indicator", "source": "Факт"}
                 ],
-                # ВАРИАНТ КОЛОНОК ДЛЯ ПРОМ ДАННЫХ (закомментировано, раскомментировать для пром данных):
-                #columns=[
-                #    {"alias": "tab_number", "source": "Табельный номер ВКО"},
-                #    {"alias": "tb", "source": "ТБ"},
-                #    {"alias": "gosb", "source": "ГОСБ"},
-                #    {"alias": "client_id", "source": "ИНН"},
-                #    {"alias": "fio", "source": "ВКО"},
-                #    {"alias": "indicator", "source": "СО за месяц, план курс"}
-                #],
+                # Колонки для пром данных: маппинг source (имя в Excel) -> alias (внутреннее имя)
+                columns_prom=[
+                    {"alias": "tab_number", "source": "Табельный номер ВКО"},
+                    {"alias": "tb", "source": "ТБ"},
+                    {"alias": "gosb", "source": "ГОСБ"},
+                    {"alias": "client_id", "source": "ИНН"},
+                    {"alias": "fio", "source": "ВКО"},
+                    {"alias": "indicator", "source": "СО за месяц, план курс"}
+                ],
                 # Правила удаления строк по умолчанию (drop_rules)
                 # Формат: [DropRule(alias="...", values=[...], ...), ...]
                 # Параметры DropRule:
@@ -606,10 +794,15 @@ class ConfigManager:
         
         # Формируем итоговую конфигурацию
         # Колонки: если в item есть columns и он не пустой, используем их, иначе defaults
+        # Выбираем columns в зависимости от режима DATA_MODE
         if file_item and file_item.columns:
             columns = file_item.columns
         else:
-            columns = defaults.columns
+            # Выбираем columns в зависимости от режима DATA_MODE
+            if DATA_MODE == "PROM":
+                columns = defaults.columns_prom if defaults.columns_prom else defaults.columns_test
+            else:
+                columns = defaults.columns_test if defaults.columns_test else defaults.columns_prom
         
         # Правила удаления: если в item есть filters.drop_rules и он не пустой, используем их, иначе defaults
         if file_item and file_item.filters.get("drop_rules"):
@@ -797,6 +990,98 @@ class Logger:
             return match.group(0)  # Если не 8 цифр, оставляем как есть
         return re.sub(pattern, mask_match, text)
     
+    def _mask_client_id(self, text: str) -> str:
+        """
+        Маскирует ИД клиента (ИНН) в тексте (xxx***xxx - первые 3 и последние 3 символа).
+        
+        Args:
+            text: Текст для маскировки
+            
+        Returns:
+            str: Текст с замаскированными ИД клиентов
+        """
+        # Ищем ИНН (12 цифр) - только полные 12-значные числа
+        pattern = r'\b(\d{12})\b'
+        def mask_match(match):
+            inn = match.group(1)
+            if len(inn) >= 6:
+                # Маскируем: первые 3 и последние 3 символа остаются, средние заменяются на ***
+                return f"{inn[:3]}***{inn[-3:]}"
+            return match.group(0)
+        return re.sub(pattern, mask_match, text)
+    
+    def _mask_sensitive_data(self, text: str) -> str:
+        """
+        Маскирует все чувствительные данные (табельные номера и ИД клиентов).
+        
+        Args:
+            text: Текст для маскировки
+            
+        Returns:
+            str: Текст с замаскированными данными
+        """
+        text = self._mask_tab_number(text)
+        text = self._mask_client_id(text)
+        return text
+    
+    def _is_debug_tab_number(self, tab_number: Any) -> bool:
+        """
+        Проверяет, является ли табельный номер тем, для которого нужно детальное логирование.
+        
+        Args:
+            tab_number: Табельный номер для проверки
+            
+        Returns:
+            bool: True, если это табельный номер для детального логирования
+        """
+        if DEBUG_TAB_NUMBER is None or not DEBUG_TAB_NUMBER:
+            return False
+        
+        if tab_number is None or pd.isna(tab_number):
+            return False
+        
+        # Нормализуем табельный номер для сравнения
+        tab_str = str(tab_number).strip().lstrip('0')
+        debug_tab_str = str(DEBUG_TAB_NUMBER).strip().lstrip('0')
+        
+        # Сравниваем нормализованные значения
+        return tab_str == debug_tab_str
+    
+    def debug_tab(self, message: str, tab_number: Any = None, class_name: Optional[str] = None, func_name: Optional[str] = None) -> None:
+        """
+        Детальное логирование для указанного табельного номера.
+        Логирует только если DEBUG_TAB_NUMBER указан и совпадает с tab_number.
+        
+        Args:
+            message: Сообщение для логирования
+            tab_number: Табельный номер (опционально, для проверки)
+            class_name: Имя класса (опционально)
+            func_name: Имя функции (опционально)
+        """
+        # Если DEBUG_TAB_NUMBER не указан, ничего не делаем
+        if DEBUG_TAB_NUMBER is None or not DEBUG_TAB_NUMBER:
+            return
+        
+        # Если указан tab_number, проверяем совпадение
+        if tab_number is not None:
+            if not self._is_debug_tab_number(tab_number):
+                return
+        
+        # Маскируем чувствительные данные
+        masked_message = self._mask_sensitive_data(message)
+        
+        # Форматируем сообщение
+        if class_name and func_name:
+            clean_class = class_name.replace("YEAR_SPOD_TOP_Month", "").strip()
+            if clean_class:
+                formatted_message = f"[ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ ТН] {masked_message} [class: {clean_class} | def: {func_name}]"
+            else:
+                formatted_message = f"[ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ ТН] {masked_message} [def: {func_name}]"
+        else:
+            formatted_message = f"[ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ ТН] {masked_message}"
+        
+        self.logger.debug(formatted_message)
+    
     def info(self, message: str, class_name: Optional[str] = None, func_name: Optional[str] = None) -> None:
         """
         Логирует сообщение уровня INFO.
@@ -806,8 +1091,8 @@ class Logger:
             class_name: Имя класса (опционально)
             func_name: Имя функции (опционально)
         """
-        # Маскируем табельные номера (но не удаляем их)
-        masked_message = self._mask_tab_number(message)
+        # Маскируем чувствительные данные (табельные номера и ИД клиентов)
+        masked_message = self._mask_sensitive_data(message)
         # Форматируем сообщение с классом и функцией (если указаны), но убираем только YEAR_SPOD_TOP_Month
         if class_name and func_name:
             # Убираем YEAR_SPOD_TOP_Month из class_name, если есть
@@ -829,8 +1114,8 @@ class Logger:
             class_name: Имя класса (опционально)
             func_name: Имя функции (опционально)
         """
-        # Маскируем табельные номера (но не удаляем их)
-        masked_message = self._mask_tab_number(message)
+        # Маскируем чувствительные данные (табельные номера и ИД клиентов)
+        masked_message = self._mask_sensitive_data(message)
         # Форматируем сообщение с классом и функцией (если указаны), но убираем только YEAR_SPOD_TOP_Month и "debug"
         if class_name and func_name:
             # Убираем YEAR_SPOD_TOP_Month из class_name, если есть
@@ -858,8 +1143,8 @@ class Logger:
             class_name: Имя класса (опционально)
             func_name: Имя функции (опционально)
         """
-        # Маскируем табельные номера (но не удаляем их)
-        masked_message = self._mask_tab_number(message)
+        # Маскируем чувствительные данные (табельные номера и ИД клиентов)
+        masked_message = self._mask_sensitive_data(message)
         if class_name and func_name:
             clean_class = class_name.replace("YEAR_SPOD_TOP_Month", "").strip()
             if clean_class:
@@ -879,8 +1164,8 @@ class Logger:
             class_name: Имя класса (опционально)
             func_name: Имя функции (опционально)
         """
-        # Маскируем табельные номера (но не удаляем их)
-        masked_message = self._mask_tab_number(message)
+        # Маскируем чувствительные данные (табельные номера и ИД клиентов)
+        masked_message = self._mask_sensitive_data(message)
         if class_name and func_name:
             clean_class = class_name.replace("YEAR_SPOD_TOP_Month", "").strip()
             if clean_class:
@@ -912,6 +1197,15 @@ class FileProcessor:
         self.processed_files: Dict[str, Dict[str, pd.DataFrame]] = {}
         self.unique_tab_numbers: Dict[str, Dict[str, Any]] = {}
         self.logger = logger_instance
+        
+        # ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ: Информируем о включенном режиме детального логирования
+        if DEBUG_TAB_NUMBER:
+            self.logger.info(
+                f"Включено детальное логирование для табельного номера: {DEBUG_TAB_NUMBER}. "
+                f"Все операции с этим табельным номером будут подробно логироваться.",
+                "FileProcessor",
+                "__init__"
+            )
         
         # Статистика обработки (собирается только если ENABLE_STATISTICS = True)
         self.statistics = {
@@ -1302,6 +1596,38 @@ class FileProcessor:
                 df[client_id_col] = df[client_id_col].apply(
                     lambda x: x.lstrip('0').zfill(defaults.inn_length) if x and x.lstrip('0') else ('0' * defaults.inn_length)
                 )
+            
+            # Нормализация ТБ (территориального банка)
+            tb_col = defaults.tb_column
+            if tb_col in df.columns:
+                # ОПТИМИЗАЦИЯ: Векторизованная нормализация ТБ через функцию normalize_tb_value
+                # Применяем нормализацию к каждому значению ТБ
+                df[tb_col] = df[tb_col].apply(normalize_tb_value)
+                # Заменяем None на пустую строку для единообразия
+                df[tb_col] = df[tb_col].fillna('')
+            
+            # ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ: Если указан DEBUG_TAB_NUMBER, логируем данные по этому табельному
+            if DEBUG_TAB_NUMBER and tab_number_col in df.columns:
+                debug_rows = df[df[tab_number_col].astype(str).str.strip().str.lstrip('0') == str(DEBUG_TAB_NUMBER).strip().lstrip('0')]
+                if len(debug_rows) > 0:
+                    indicator_col = defaults.indicator_column
+                    client_id_col = "client_id"
+                    
+                    for idx, row in debug_rows.iterrows():
+                        client_id = row.get(client_id_col, '')
+                        tb_value = row.get(tb_col, '')
+                        gosb_value = row.get(defaults.gosb_column, '')
+                        fio_value = row.get(defaults.fio_column, '')
+                        indicator_value = row.get(indicator_col, 0)
+                        
+                        self.logger.debug_tab(
+                            f"Загрузка файла {file_path.name} (группа {group_name}): найдена строка для ТН. "
+                            f"Клиент: {client_id}, ТБ: {tb_value}, ГОСБ: {gosb_value}, ФИО: {fio_value}, "
+                            f"Показатель ({indicator_col}): {indicator_value}",
+                            tab_number=row.get(tab_number_col),
+                            class_name="FileProcessor",
+                            func_name="_load_file"
+                        )
             
             # Добавляем метаданные о файле
             df.attrs['file_name'] = file_path.name
@@ -1798,6 +2124,28 @@ class FileProcessor:
                         tab_data = grouped[grouped[tab_col] == tab_num]
                         if len(tab_data) > 1:
                             self.logger.debug(f"В файле {file_name} для табельного {tab_num} найдено {len(tab_data)} вариантов ТБ/ГОСБ, выбран вариант с максимальной суммой показателя: {max_row[indicator_col]:.2f}", "FileProcessor", "collect_unique_tab_numbers")
+                        
+                        # ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ: Логируем выбор варианта для указанного табельного
+                        if self.logger._is_debug_tab_number(tab_num):
+                            variants_info = []
+                            for _, variant_row in tab_data.iterrows():
+                                variants_info.append({
+                                    "ТБ": variant_row.get(tb_col, ''),
+                                    "ГОСБ": variant_row.get(gosb_col, ''),
+                                    "ФИО": variant_row.get(fio_col, ''),
+                                    "Показатель": variant_row.get(indicator_col, 0)
+                                })
+                            
+                            self.logger.debug_tab(
+                                f"Выбор варианта ТБ/ГОСБ для табельного в файле {file_name} (группа {group}): "
+                                f"найдено {len(tab_data)} вариантов. Все варианты: {variants_info}. "
+                                f"Выбран вариант с максимальной суммой показателя: ТБ='{max_row.get(tb_col, '')}', "
+                                f"ГОСБ='{max_row.get(gosb_col, '')}', ФИО='{max_row.get(fio_col, '')}', "
+                                f"Показатель={max_row.get(indicator_col, 0):.2f}",
+                                tab_number=tab_num,
+                                class_name="FileProcessor",
+                                func_name="collect_unique_tab_numbers"
+                            )
                     
                     # Шаг 3: Находим соответствующие строки в исходном DataFrame через merge (быстро)
                     # Используем merge вместо циклов с mask - это векторизованная операция
@@ -1935,7 +2283,29 @@ class FileProcessor:
                             "month": month,
                             "priority": current_priority
                         }
+                        
+                        # ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ: Логируем сбор уникального табельного номера
+                        if self.logger._is_debug_tab_number(tab_number):
+                            self.logger.debug_tab(
+                                f"Собран уникальный табельный номер из файла {file_name} (группа {group}, месяц M-{month}): "
+                                f"ТБ='{tb_str}', ГОСБ='{gosb_str}', ФИО='{fio_str}', приоритет={current_priority}",
+                                tab_number=tab_number,
+                                class_name="FileProcessor",
+                                func_name="collect_unique_tab_numbers"
+                            )
                     # Если табельный номер уже найден, НЕ обновляем - оставляем ранее найденный
+                    elif self.logger._is_debug_tab_number(tab_number):
+                        # ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ: Логируем, что табельный номер уже был найден ранее
+                        existing_data = all_tab_data[tab_number]
+                        self.logger.debug_tab(
+                            f"Табельный номер уже найден ранее в файле {existing_data.get('group', '?')} M-{existing_data.get('month', '?')} "
+                            f"(приоритет {existing_data.get('priority', '?')}). "
+                            f"Текущий файл {file_name} (группа {group}, месяц M-{month}, приоритет {current_priority}) пропущен - "
+                            f"используются ранее найденные значения: ТБ='{existing_data.get('tb', '')}', ГОСБ='{existing_data.get('gosb', '')}', ФИО='{existing_data.get('fio', '')}'",
+                            tab_number=tab_number,
+                            class_name="FileProcessor",
+                            func_name="collect_unique_tab_numbers"
+                        )
         
         self.unique_tab_numbers = all_tab_data
         
@@ -2019,6 +2389,20 @@ class FileProcessor:
                 
                 # Группируем по уникальным комбинациям ТН+ФИО+ТБ+ГОСБ+ИНН и суммируем показатель
                 grouped = df.groupby([tab_col, fio_col, tb_col, gosb_col, "client_id"], as_index=False)[indicator_col].sum()
+                
+                # ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ: Логируем данные для указанного табельного в RAW
+                if DEBUG_TAB_NUMBER and tab_col in grouped.columns:
+                    debug_rows = grouped[grouped[tab_col].astype(str).str.strip().str.lstrip('0') == str(DEBUG_TAB_NUMBER).strip().lstrip('0')]
+                    if len(debug_rows) > 0:
+                        for _, row in debug_rows.iterrows():
+                            self.logger.debug_tab(
+                                f"Подготовка RAW данных для файла {file_name} (группа {group}, месяц M-{month}): "
+                                f"ТБ='{row.get(tb_col, '')}', ГОСБ='{row.get(gosb_col, '')}', ФИО='{row.get(fio_col, '')}', "
+                                f"ИНН={row.get('client_id', '')}, Показатель={row.get(indicator_col, 0):.2f}",
+                                tab_number=row.get(tab_col),
+                                class_name="FileProcessor",
+                                func_name="prepare_raw_data"
+                            )
                 
                 # Переименовываем колонки для единообразия
                 grouped = grouped.rename(columns={
@@ -2262,6 +2646,24 @@ class FileProcessor:
                     row[full_name] = file_indexes[full_name].get(tab_number, 0)
                 else:
                     row[full_name] = 0
+            
+            # ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ: Если это табельный номер для детального логирования
+            if self.logger._is_debug_tab_number(tab_number):
+                # Собираем информацию о всех значениях по месяцам
+                month_values = {}
+                for group, file_name, full_name in all_files:
+                    value = row.get(full_name, 0)
+                    if value != 0:
+                        month_values[full_name] = value
+                
+                self.logger.debug_tab(
+                    f"Подготовка сводных данных для ТН: ТБ='{tb_value}', ГОСБ='{gosb_value}', ФИО='{fio_value}'. "
+                    f"Найдено значений по месяцам: {len(month_values)}. "
+                    f"Детали: {dict(list(month_values.items())[:10])}",
+                    tab_number=tab_number,
+                    class_name="FileProcessor",
+                    func_name="prepare_summary_data"
+                )
             
             result_data.append(row)
         
@@ -2621,6 +3023,25 @@ class FileProcessor:
                             curr_val = pd.to_numeric(summary_df[full_name], errors='coerce').fillna(0)
                             prev_val = pd.to_numeric(summary_df[prev_file_name], errors='coerce').fillna(0)
                             calculated_df[full_name] = curr_val - prev_val
+                            
+                            # ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ: Логируем расчет для указанного табельного
+                            if DEBUG_TAB_NUMBER and "Табельный" in summary_df.columns:
+                                debug_mask = summary_df["Табельный"].astype(str).str.strip().str.lstrip('0') == str(DEBUG_TAB_NUMBER).strip().lstrip('0')
+                                if debug_mask.any():
+                                    debug_idx = summary_df[debug_mask].index[0]
+                                    curr_val_debug = curr_val.loc[debug_idx] if debug_idx in curr_val.index else 0
+                                    prev_val_debug = prev_val.loc[debug_idx] if debug_idx in prev_val.index else 0
+                                    result_debug = calculated_df.loc[debug_idx, full_name] if debug_idx in calculated_df.index else 0
+                                    
+                                    self.logger.debug_tab(
+                                        f"Расчет типа 2 для группы {group}, месяц M-{month}: "
+                                        f"текущее значение (M-{month})={curr_val_debug}, "
+                                        f"предыдущее значение (M-{prev_month})={prev_val_debug}, "
+                                        f"результат (прирост)={result_debug}",
+                                        tab_number=DEBUG_TAB_NUMBER,
+                                        class_name="FileProcessor",
+                                        func_name="prepare_calculated_data"
+                                    )
                         else:
                             calculated_df[full_name] = pd.to_numeric(summary_df[full_name], errors='coerce').fillna(0)
                 
@@ -2664,6 +3085,27 @@ class FileProcessor:
                             prev2_val = 0
                         
                         calculated_df[full_name] = curr_val - 2 * prev1_val + prev2_val
+                        
+                        # ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ: Логируем расчет для указанного табельного
+                        if DEBUG_TAB_NUMBER and "Табельный" in summary_df.columns:
+                            debug_mask = summary_df["Табельный"].astype(str).str.strip().str.lstrip('0') == str(DEBUG_TAB_NUMBER).strip().lstrip('0')
+                            if debug_mask.any():
+                                debug_idx = summary_df[debug_mask].index[0]
+                                curr_val_debug = curr_val.loc[debug_idx] if debug_idx in curr_val.index else 0
+                                prev1_val_debug = prev1_val.loc[debug_idx] if debug_idx in prev1_val.index else 0
+                                prev2_val_debug = prev2_val.loc[debug_idx] if debug_idx in prev2_val.index else 0
+                                result_debug = calculated_df.loc[debug_idx, full_name] if debug_idx in calculated_df.index else 0
+                                
+                                self.logger.debug_tab(
+                                    f"Расчет типа 3 для группы {group}, месяц M-{month}: "
+                                    f"текущее значение (M-{month})={curr_val_debug}, "
+                                    f"предыдущее значение (M-{prev_month})={prev1_val_debug}, "
+                                    f"пред-предыдущее значение (M-{prev2_month})={prev2_val_debug}, "
+                                    f"результат (M-{month} - 2*M-{prev_month} + M-{prev2_month})={result_debug}",
+                                    tab_number=DEBUG_TAB_NUMBER,
+                                    class_name="FileProcessor",
+                                    func_name="prepare_calculated_data"
+                                )
         
         # Переименовываем колонки на понятные имена (только те, которые существуют в DataFrame)
         # ВАЖНО: Исключаем базовые колонки из переименования
@@ -2854,6 +3296,25 @@ class FileProcessor:
                 
                 # ВАЖНО: Убеждаемся, что индексы совпадают при присваивании
                 normalized_df.loc[normalized.index, norm_col_name] = normalized
+                
+                # ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ: Логируем нормализацию для указанного табельного
+                if DEBUG_TAB_NUMBER and "Табельный" in calculated_df.columns:
+                    debug_mask = calculated_df["Табельный"].astype(str).str.strip().str.lstrip('0') == str(DEBUG_TAB_NUMBER).strip().lstrip('0')
+                    if debug_mask.any():
+                        debug_idx = calculated_df[debug_mask].index[0]
+                        original_value = calculated_df.loc[debug_idx, col] if col in calculated_df.columns else None
+                        normalized_value = normalized.loc[debug_idx] if debug_idx in normalized.index else None
+                        min_val = group_min.loc[debug_idx] if debug_idx in group_min.index else None
+                        max_val = group_max.loc[debug_idx] if debug_idx in group_max.index else None
+                        
+                        self.logger.debug_tab(
+                            f"Нормализация показателя {group_name} для месяца M-{month}: "
+                            f"исходное значение={original_value}, нормализованное={normalized_value}, "
+                            f"min={min_val}, max={max_val}, направление={direction}",
+                            tab_number=DEBUG_TAB_NUMBER,
+                            class_name="FileProcessor",
+                            func_name="_normalize_indicators"
+                        )
         
         # ВАЖНО: Сбрасываем индекс только в конце, после всех присваиваний
         normalized_df = normalized_df.reset_index(drop=True)
@@ -3003,6 +3464,27 @@ class FileProcessor:
             score_col_name = f"Score (M-{month})"
             places_df[score_col_name] = score
             score_cols[month] = score_col_name
+            
+            # ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ: Логируем расчет Score для указанного табельного
+            if DEBUG_TAB_NUMBER and "Табельный" in calculated_df.columns:
+                debug_mask = calculated_df["Табельный"].astype(str).str.strip().str.lstrip('0') == str(DEBUG_TAB_NUMBER).strip().lstrip('0')
+                if debug_mask.any():
+                    debug_idx = calculated_df[debug_mask].index[0]
+                    od_val = normalized_df.loc[debug_idx, od_norm_col] if od_norm_col in normalized_df.columns and debug_idx in normalized_df.index else 0
+                    ra_val = normalized_df.loc[debug_idx, ra_norm_col] if ra_norm_col in normalized_df.columns and debug_idx in normalized_df.index else 0
+                    ps_val = normalized_df.loc[debug_idx, ps_norm_col] if ps_norm_col in normalized_df.columns and debug_idx in normalized_df.index else 0
+                    score_val = score.loc[debug_idx] if debug_idx in score.index else 0
+                    
+                    self.logger.debug_tab(
+                        f"Расчет Score для месяца M-{month}: "
+                        f"OD_norm={od_val:.4f} × {weight_od} = {od_val * weight_od:.4f}, "
+                        f"RA_norm={ra_val:.4f} × {weight_ra} = {ra_val * weight_ra:.4f}, "
+                        f"PS_norm={ps_val:.4f} × {weight_ps} = {ps_val * weight_ps:.4f}, "
+                        f"Итого Score={score_val:.4f}",
+                        tab_number=DEBUG_TAB_NUMBER,
+                        class_name="FileProcessor",
+                        func_name="_calculate_best_month_variant3"
+                    )
         
         # ОПТИМИЗАЦИЯ: Векторизованный расчет горизонтального ранга
         # Создаем DataFrame со всеми Score для удобства работы
@@ -3019,6 +3501,28 @@ class FileProcessor:
         for month in sorted(month_data.keys()):
             rank_col_name = f"Место (M-{month})"
             places_df[rank_col_name] = rank_df[f"M-{month}"].fillna(0).astype(int)
+        
+        # ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ: Логируем расчет рангов для указанного табельного
+        if DEBUG_TAB_NUMBER and "Табельный" in calculated_df.columns:
+            debug_mask = calculated_df["Табельный"].astype(str).str.strip().str.lstrip('0') == str(DEBUG_TAB_NUMBER).strip().lstrip('0')
+            if debug_mask.any():
+                debug_idx = calculated_df[debug_mask].index[0]
+                ranks_info = {}
+                scores_info = {}
+                for month in sorted(month_data.keys()):
+                    rank_val = rank_df.loc[debug_idx, f"M-{month}"] if debug_idx in rank_df.index and f"M-{month}" in rank_df.columns else None
+                    score_val = score_df.loc[debug_idx, f"M-{month}"] if debug_idx in score_df.index and f"M-{month}" in score_df.columns else None
+                    if rank_val is not None:
+                        ranks_info[f"M-{month}"] = int(rank_val)
+                    if score_val is not None:
+                        scores_info[f"M-{month}"] = float(score_val)
+                
+                self.logger.debug_tab(
+                    f"Расчет рангов (мест): Score по месяцам: {scores_info}, Места по месяцам: {ranks_info}",
+                    tab_number=DEBUG_TAB_NUMBER,
+                    class_name="FileProcessor",
+                    func_name="_calculate_best_month_variant3"
+                )
         
         # ОПТИМИЗАЦИЯ: Векторизованный поиск лучшего месяца
         # Находим все месяцы с рангом 1 для каждого КМ
@@ -3079,9 +3583,28 @@ class FileProcessor:
             if not best_months:
                 continue
             
+            # ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ: Логируем процесс выбора лучшего месяца
+            tab_number = calculated_df.loc[idx, "Табельный"] if "Табельный" in calculated_df.columns else None
+            is_debug_tab = self.logger._is_debug_tab_number(tab_number) if tab_number is not None else False
+            
+            if is_debug_tab:
+                self.logger.debug_tab(
+                    f"Найдены месяцы с рангом 1: {best_months}",
+                    tab_number=tab_number,
+                    class_name="FileProcessor",
+                    func_name="_calculate_best_month_variant3"
+                )
+            
             # Если только один месяц - просто добавляем его
             if len(best_months) == 1:
                 best_month_series.loc[idx] = str(best_months[0])
+                if is_debug_tab:
+                    self.logger.debug_tab(
+                        f"Выбран единственный лучший месяц: {best_months[0]}",
+                        tab_number=tab_number,
+                        class_name="FileProcessor",
+                        func_name="_calculate_best_month_variant3"
+                    )
                 continue
             
             # Если несколько месяцев - проверяем значения и группируем
@@ -3139,6 +3662,18 @@ class FileProcessor:
             
             # Формируем строку с выбранными месяцами
             best_month_series.loc[idx] = ", ".join([str(m) for m in sorted(selected_months)])
+            
+            # ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ: Логируем финальный выбор лучшего месяца
+            if is_debug_tab:
+                self.logger.debug_tab(
+                    f"Финальный выбор лучшего месяца: {best_month_series.loc[idx]}. "
+                    f"Исходные месяцы с рангом 1: {best_months}, "
+                    f"Группы подряд идущих: {consecutive_groups}, "
+                    f"Выбранные месяцы: {selected_months}",
+                    tab_number=tab_number,
+                    class_name="FileProcessor",
+                    func_name="_calculate_best_month_variant3"
+                )
         
         # Добавляем колонку "Лучший месяц" в places_df и final_df
         places_df["Лучший месяц"] = best_month_series
