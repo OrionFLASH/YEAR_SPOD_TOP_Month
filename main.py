@@ -4402,16 +4402,15 @@ class ExcelFormatter:
             else:
                 # Используем pandas ExcelWriter без форматирования
                 self.logger.warning("openpyxl недоступен, создается файл без форматирования", "ExcelFormatter", "create_formatted_excel")
-                # ВАЖНО: Проверяем размер raw_df перед сохранением
-                MAX_EXCEL_ROWS = 1_048_576
-                raw_df_to_save = raw_df if len(raw_df) <= MAX_EXCEL_ROWS else raw_df.head(MAX_EXCEL_ROWS)
-                if len(raw_df) > MAX_EXCEL_ROWS:
-                    self.logger.warning(f"Лист RAW слишком большой ({len(raw_df)} строк), будет сохранена только первая часть ({MAX_EXCEL_ROWS} строк)", "ExcelFormatter", "create_formatted_excel")
+                # Разбиваем raw_df на чанки (если больше 900 000 строк)
+                raw_chunks = self._split_raw_df(raw_df, chunk_size=900_000)
                 # Пробуем использовать доступный engine
                 try:
                     with pd.ExcelWriter(output_path, engine='openpyxl') as writer:
-                        if len(raw_df_to_save) > 0:
-                            raw_df_to_save.to_excel(writer, sheet_name="RAW", index=False)
+                        # Сохраняем все чанки RAW
+                        for sheet_name, chunk_df in raw_chunks:
+                            if len(chunk_df) > 0:
+                                chunk_df.to_excel(writer, sheet_name=sheet_name, index=False)
                         summary_df.to_excel(writer, sheet_name="Исходник", index=False)
                         calculated_df.to_excel(writer, sheet_name="Расчет", index=False)
                         normalized_df.to_excel(writer, sheet_name="Нормализация", index=False)
@@ -4422,8 +4421,10 @@ class ExcelFormatter:
                 except Exception as e:
                     try:
                         with pd.ExcelWriter(output_path) as writer:
-                            if len(raw_df_to_save) > 0:
-                                raw_df_to_save.to_excel(writer, sheet_name="RAW", index=False)
+                            # Сохраняем все чанки RAW
+                            for sheet_name, chunk_df in raw_chunks:
+                                if len(chunk_df) > 0:
+                                    chunk_df.to_excel(writer, sheet_name=sheet_name, index=False)
                             summary_df.to_excel(writer, sheet_name="Исходник", index=False)
                             calculated_df.to_excel(writer, sheet_name="Расчет", index=False)
                             normalized_df.to_excel(writer, sheet_name="Нормализация", index=False)
@@ -4434,8 +4435,10 @@ class ExcelFormatter:
                     except Exception:
                         # Если не получилось, используем любой доступный engine
                         with pd.ExcelWriter(output_path) as writer:
-                            if len(raw_df_to_save) > 0:
-                                raw_df_to_save.to_excel(writer, sheet_name="RAW", index=False)
+                            # Сохраняем все чанки RAW
+                            for sheet_name, chunk_df in raw_chunks:
+                                if len(chunk_df) > 0:
+                                    chunk_df.to_excel(writer, sheet_name=sheet_name, index=False)
                             summary_df.to_excel(writer, sheet_name="Исходник", index=False)
                             calculated_df.to_excel(writer, sheet_name="Расчет", index=False)
                             normalized_df.to_excel(writer, sheet_name="Нормализация", index=False)
@@ -4447,16 +4450,15 @@ class ExcelFormatter:
             
         except Exception as e:
             self.logger.error(f"Ошибка при создании Excel файла {output_path}: {str(e)}", "ExcelFormatter", "create_formatted_excel")
-            # ВАЖНО: Проверяем размер raw_df перед сохранением в fallback режиме
-            MAX_EXCEL_ROWS = 1_048_576
-            raw_df_fallback = raw_df if len(raw_df) <= MAX_EXCEL_ROWS else raw_df.head(MAX_EXCEL_ROWS)
-            if len(raw_df) > MAX_EXCEL_ROWS:
-                self.logger.warning(f"Лист RAW слишком большой ({len(raw_df)} строк), будет сохранена только первая часть ({MAX_EXCEL_ROWS} строк)", "ExcelFormatter", "create_formatted_excel")
+            # Разбиваем raw_df на чанки (если больше 900 000 строк) для fallback режима
+            raw_chunks = self._split_raw_df(raw_df, chunk_size=900_000)
             # Пробуем создать без форматирования
             try:
                 with pd.ExcelWriter(output_path) as writer:
-                    if len(raw_df_fallback) > 0:
-                        raw_df_fallback.to_excel(writer, sheet_name="RAW", index=False)
+                    # Сохраняем все чанки RAW
+                    for sheet_name, chunk_df in raw_chunks:
+                        if len(chunk_df) > 0:
+                            chunk_df.to_excel(writer, sheet_name=sheet_name, index=False)
                     summary_df.to_excel(writer, sheet_name="Исходник", index=False)
                     calculated_df.to_excel(writer, sheet_name="Расчет", index=False)
                     normalized_df.to_excel(writer, sheet_name="Нормализация", index=False)
@@ -4469,6 +4471,56 @@ class ExcelFormatter:
                 self.logger.error(f"Критическая ошибка при создании файла: {str(e2)}", "ExcelFormatter", "create_formatted_excel")
                 raise
     
+    def _split_raw_df(self, raw_df: pd.DataFrame, chunk_size: int = 900_000) -> list[tuple[str, pd.DataFrame]]:
+        """
+        Разбивает raw_df на несколько чанков для сохранения в отдельные листы Excel.
+        
+        Args:
+            raw_df: DataFrame с сырыми данными
+            chunk_size: Максимальный размер чанка (по умолчанию 900 000 строк)
+        
+        Returns:
+            list[tuple[str, pd.DataFrame]]: Список кортежей (имя_листа, DataFrame_чанка)
+        """
+        if len(raw_df) == 0:
+            return []
+        
+        chunks = []
+        total_rows = len(raw_df)
+        
+        if total_rows <= chunk_size:
+            # Если данных меньше или равно chunk_size, создаем один лист RAW
+            chunks.append(("RAW", raw_df))
+        else:
+            # Разбиваем на несколько листов: RAW, RAW_2, RAW_3, ...
+            num_chunks = (total_rows + chunk_size - 1) // chunk_size  # Округление вверх
+            
+            self.logger.info(
+                f"Лист RAW слишком большой ({total_rows} строк), будет разбит на {num_chunks} листа(ов) "
+                f"(по {chunk_size} строк в каждом)",
+                "ExcelFormatter",
+                "_split_raw_df"
+            )
+            
+            for i in range(num_chunks):
+                start_idx = i * chunk_size
+                end_idx = min((i + 1) * chunk_size, total_rows)
+                chunk_df = raw_df.iloc[start_idx:end_idx].copy()
+                
+                if i == 0:
+                    sheet_name = "RAW"
+                else:
+                    sheet_name = f"RAW_{i + 1}"
+                
+                chunks.append((sheet_name, chunk_df))
+                self.logger.debug(
+                    f"Создан чанк {sheet_name}: строки {start_idx + 1}-{end_idx} (всего {len(chunk_df)} строк)",
+                    "ExcelFormatter",
+                    "_split_raw_df"
+                )
+        
+        return chunks
+    
     def _create_with_openpyxl(self, raw_df: pd.DataFrame, summary_df: pd.DataFrame, calculated_df: pd.DataFrame,
                              normalized_df: pd.DataFrame, places_df: pd.DataFrame, final_df: pd.DataFrame,
                              output_path: str, statistics_df: Optional[pd.DataFrame] = None) -> None:
@@ -4476,36 +4528,29 @@ class ExcelFormatter:
         Создает Excel файл с форматированием используя openpyxl.
         
         Args:
+            raw_df: DataFrame с сырыми данными (может быть разбит на несколько листов)
             summary_df: DataFrame с исходными данными
             calculated_df: DataFrame с расчетными данными
             normalized_df: DataFrame с нормализованными данными
             places_df: DataFrame с Score и рангами
             final_df: DataFrame с итоговыми данными
             output_path: Путь для сохранения файла
+            statistics_df: DataFrame со статистикой (опционально)
         """
         self.logger.info("Использование openpyxl для форматирования")
         
-        # ВАЖНО: Проверяем размер raw_df перед сохранением
-        # Excel имеет ограничение: максимум 1 048 576 строк на лист
-        MAX_EXCEL_ROWS = 1_048_576
-        raw_df_to_save = raw_df
-        
-        if len(raw_df) > MAX_EXCEL_ROWS:
-            self.logger.warning(
-                f"Лист RAW слишком большой ({len(raw_df)} строк), превышает лимит Excel ({MAX_EXCEL_ROWS} строк). "
-                f"Будет сохранена только первая часть ({MAX_EXCEL_ROWS} строк).",
-                "ExcelFormatter",
-                "_create_with_openpyxl"
-            )
-            # Ограничиваем размер до максимума Excel
-            raw_df_to_save = raw_df.head(MAX_EXCEL_ROWS)
+        # Разбиваем raw_df на чанки (если больше 900 000 строк)
+        raw_chunks = self._split_raw_df(raw_df, chunk_size=900_000)
         
         # Сначала сохраняем DataFrame в Excel через pandas
         self.logger.info("Сохранение данных в Excel...")
         with pd.ExcelWriter(output_path, engine='openpyxl') as writer:
-            # Сохраняем RAW только если он не пустой и не превышает лимит
-            if len(raw_df_to_save) > 0:
-                raw_df_to_save.to_excel(writer, sheet_name="RAW", index=False)
+            # Сохраняем все чанки RAW
+            for sheet_name, chunk_df in raw_chunks:
+                if len(chunk_df) > 0:
+                    chunk_df.to_excel(writer, sheet_name=sheet_name, index=False)
+            
+            # Сохраняем остальные листы
             summary_df.to_excel(writer, sheet_name="Исходник", index=False)
             calculated_df.to_excel(writer, sheet_name="Расчет", index=False)
             normalized_df.to_excel(writer, sheet_name="Нормализация", index=False)
@@ -4519,15 +4564,19 @@ class ExcelFormatter:
         wb = load_workbook(output_path)
         
         # Форматируем все листы
-        # ВАЖНО: Используем ограниченный raw_df для форматирования (если был ограничен при сохранении)
-        sheet_data = {
-            "RAW": raw_df_to_save if len(raw_df_to_save) > 0 else pd.DataFrame(),
+        # Собираем все листы RAW для форматирования
+        sheet_data = {}
+        for sheet_name, chunk_df in raw_chunks:
+            sheet_data[sheet_name] = chunk_df
+        
+        # Добавляем остальные листы
+        sheet_data.update({
             "Исходник": summary_df,
             "Расчет": calculated_df,
             "Нормализация": normalized_df,
             "Места и выбор": places_df,
             "Итог": final_df
-        }
+        })
         
         if statistics_df is not None:
             sheet_data["Статистика"] = statistics_df
@@ -4550,6 +4599,9 @@ class ExcelFormatter:
             if sheet_name == "Статистика":
                 # Для листа статистики используем специальное форматирование
                 self._format_statistics_sheet_openpyxl(ws, df)
+            elif sheet_name.startswith("RAW"):
+                # Для всех листов RAW (RAW, RAW_2, RAW_3 и т.д.) используем стандартное форматирование
+                self._format_sheet_openpyxl(ws, df, sheet_name, sheet_idx, total_sheets)
             else:
                 self._format_sheet_openpyxl(ws, df, sheet_name, sheet_idx, total_sheets)
         
