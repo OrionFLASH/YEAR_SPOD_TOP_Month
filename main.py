@@ -4549,56 +4549,72 @@ class ExcelFormatter:
         LOG_INTERVAL = 30  # Логируем прогресс каждые 30 секунд
         
         self.logger.info("Сохранение данных в Excel...")
-        with pd.ExcelWriter(output_path, engine='openpyxl') as writer:
-            # Сохраняем все чанки RAW
-            total_raw_chunks = len(raw_chunks)
-            for chunk_idx, (sheet_name, chunk_df) in enumerate(raw_chunks, 1):
-                if len(chunk_df) > 0:
+        try:
+            with pd.ExcelWriter(output_path, engine='openpyxl') as writer:
+                # Сохраняем все чанки RAW
+                total_raw_chunks = len(raw_chunks)
+                for chunk_idx, (sheet_name, chunk_df) in enumerate(raw_chunks, 1):
+                    if len(chunk_df) > 0:
+                        current_time = time_func()
+                        if current_time - last_log_time >= LOG_INTERVAL:
+                            elapsed = current_time - save_start_time
+                            self.logger.info(f"Сохранение листа '{sheet_name}' ({chunk_idx}/{total_raw_chunks})... (прошло {elapsed:.0f} сек)")
+                            last_log_time = current_time
+                        try:
+                            chunk_df.to_excel(writer, sheet_name=sheet_name, index=False)
+                        except KeyboardInterrupt:
+                            self.logger.warning(f"Прерывание при сохранении листа '{sheet_name}'", "ExcelFormatter", "_create_with_openpyxl")
+                            raise
+                        current_time = time_func()
+                        if current_time - last_log_time >= LOG_INTERVAL:
+                            elapsed = current_time - save_start_time
+                            self.logger.info(f"Сохранен лист '{sheet_name}' ({chunk_idx}/{total_raw_chunks}) (прошло {elapsed:.0f} сек)")
+                            last_log_time = current_time
+                
+                # Сохраняем остальные листы
+                other_sheets = [
+                    ("Исходник", summary_df),
+                    ("Расчет", calculated_df),
+                    ("Нормализация", normalized_df),
+                    ("Места и выбор", places_df),
+                    ("Итог", final_df)
+                ]
+                if statistics_df is not None:
+                    other_sheets.append(("Статистика", statistics_df))
+                
+                for sheet_idx, (sheet_name, df) in enumerate(other_sheets, 1):
                     current_time = time_func()
                     if current_time - last_log_time >= LOG_INTERVAL:
                         elapsed = current_time - save_start_time
-                        self.logger.info(f"Сохранение листа '{sheet_name}' ({chunk_idx}/{total_raw_chunks})... (прошло {elapsed:.0f} сек)")
+                        self.logger.info(f"Сохранение листа '{sheet_name}' ({sheet_idx}/{len(other_sheets)})... (прошло {elapsed:.0f} сек)")
                         last_log_time = current_time
-                    chunk_df.to_excel(writer, sheet_name=sheet_name, index=False)
+                    try:
+                        if sheet_name == "Статистика":
+                            df.to_excel(writer, sheet_name=sheet_name, index=False, header=False)
+                        else:
+                            df.to_excel(writer, sheet_name=sheet_name, index=False)
+                    except KeyboardInterrupt:
+                        self.logger.warning(f"Прерывание при сохранении листа '{sheet_name}'", "ExcelFormatter", "_create_with_openpyxl")
+                        raise
                     current_time = time_func()
                     if current_time - last_log_time >= LOG_INTERVAL:
                         elapsed = current_time - save_start_time
-                        self.logger.info(f"Сохранен лист '{sheet_name}' ({chunk_idx}/{total_raw_chunks}) (прошло {elapsed:.0f} сек)")
+                        self.logger.info(f"Сохранен лист '{sheet_name}' ({sheet_idx}/{len(other_sheets)}) (прошло {elapsed:.0f} сек)")
                         last_log_time = current_time
-            
-            # Сохраняем остальные листы
-            other_sheets = [
-                ("Исходник", summary_df),
-                ("Расчет", calculated_df),
-                ("Нормализация", normalized_df),
-                ("Места и выбор", places_df),
-                ("Итог", final_df)
-            ]
-            if statistics_df is not None:
-                other_sheets.append(("Статистика", statistics_df))
-            
-            for sheet_idx, (sheet_name, df) in enumerate(other_sheets, 1):
-                current_time = time_func()
-                if current_time - last_log_time >= LOG_INTERVAL:
-                    elapsed = current_time - save_start_time
-                    self.logger.info(f"Сохранение листа '{sheet_name}' ({sheet_idx}/{len(other_sheets)})... (прошло {elapsed:.0f} сек)")
-                    last_log_time = current_time
-                if sheet_name == "Статистика":
-                    df.to_excel(writer, sheet_name=sheet_name, index=False, header=False)
-                else:
-                    df.to_excel(writer, sheet_name=sheet_name, index=False)
-                current_time = time_func()
-                if current_time - last_log_time >= LOG_INTERVAL:
-                    elapsed = current_time - save_start_time
-                    self.logger.info(f"Сохранен лист '{sheet_name}' ({sheet_idx}/{len(other_sheets)}) (прошло {elapsed:.0f} сек)")
-                    last_log_time = current_time
+        except KeyboardInterrupt:
+            self.logger.warning("Прерывание при сохранении данных в Excel", "ExcelFormatter", "_create_with_openpyxl")
+            raise
         
         save_elapsed = time_func() - save_start_time
         self.logger.info(f"Данные сохранены в Excel за {save_elapsed:.0f} секунд")
         
         # Теперь форматируем файл
         self.logger.info("Начало форматирования Excel файла...")
-        wb = load_workbook(output_path)
+        try:
+            wb = load_workbook(output_path)
+        except KeyboardInterrupt:
+            self.logger.warning("Прерывание при загрузке Excel файла для форматирования", "ExcelFormatter", "_create_with_openpyxl")
+            raise
         
         # Форматируем все листы
         # Собираем все листы RAW для форматирования
@@ -4624,37 +4640,49 @@ class ExcelFormatter:
         last_progress_time = format_start_time
         PROGRESS_INTERVAL = 30  # Логируем прогресс каждые 30 секунд (максимум раз в минуту)
         
-        for sheet_idx, (sheet_name, df) in enumerate(sheet_data.items(), 1):
-            if sheet_name not in wb.sheetnames:
-                continue
+        try:
+            for sheet_idx, (sheet_name, df) in enumerate(sheet_data.items(), 1):
+                if sheet_name not in wb.sheetnames:
+                    continue
+                
+                current_time = time()
+                elapsed = current_time - format_start_time
+                if current_time - last_progress_time >= PROGRESS_INTERVAL:
+                    self.logger.info(f"Форматирование листа '{sheet_name}' ({sheet_idx}/{total_sheets})... (прошло {elapsed:.0f} сек)")
+                    last_progress_time = current_time
+                
+                try:
+                    ws = wb[sheet_name]
+                    if sheet_name == "Статистика":
+                        # Для листа статистики используем специальное форматирование
+                        self._format_statistics_sheet_openpyxl(ws, df)
+                    elif sheet_name.startswith("RAW"):
+                        # Для всех листов RAW (RAW, RAW_2, RAW_3 и т.д.) используем стандартное форматирование
+                        self._format_sheet_openpyxl(ws, df, sheet_name, sheet_idx, total_sheets)
+                    else:
+                        self._format_sheet_openpyxl(ws, df, sheet_name, sheet_idx, total_sheets)
+                except KeyboardInterrupt:
+                    self.logger.warning(f"Прерывание при форматировании листа '{sheet_name}'", "ExcelFormatter", "_create_with_openpyxl")
+                    raise
+                
+                # Логируем завершение форматирования каждого листа
+                current_time = time()
+                elapsed = current_time - format_start_time
+                if current_time - last_progress_time >= PROGRESS_INTERVAL:
+                    self.logger.info(f"Завершено форматирование листа '{sheet_name}' ({sheet_idx}/{total_sheets}) (прошло {elapsed:.0f} сек)")
+                    last_progress_time = current_time
             
-            current_time = time()
-            elapsed = current_time - format_start_time
-            if current_time - last_progress_time >= PROGRESS_INTERVAL:
-                self.logger.info(f"Форматирование листа '{sheet_name}' ({sheet_idx}/{total_sheets})... (прошло {elapsed:.0f} сек)")
-                last_progress_time = current_time
-            
-            ws = wb[sheet_name]
-            if sheet_name == "Статистика":
-                # Для листа статистики используем специальное форматирование
-                self._format_statistics_sheet_openpyxl(ws, df)
-            elif sheet_name.startswith("RAW"):
-                # Для всех листов RAW (RAW, RAW_2, RAW_3 и т.д.) используем стандартное форматирование
-                self._format_sheet_openpyxl(ws, df, sheet_name, sheet_idx, total_sheets)
-            else:
-                self._format_sheet_openpyxl(ws, df, sheet_name, sheet_idx, total_sheets)
-            
-            # Логируем завершение форматирования каждого листа
-            current_time = time()
-            elapsed = current_time - format_start_time
-            if current_time - last_progress_time >= PROGRESS_INTERVAL:
-                self.logger.info(f"Завершено форматирование листа '{sheet_name}' ({sheet_idx}/{total_sheets}) (прошло {elapsed:.0f} сек)")
-                last_progress_time = current_time
-        
-        # Сохраняем файл
-        format_elapsed = time() - format_start_time
-        self.logger.info(f"Сохранение форматированного файла... (форматирование заняло {format_elapsed:.0f} сек)")
-        wb.save(output_path)
+            # Сохраняем файл
+            format_elapsed = time() - format_start_time
+            self.logger.info(f"Сохранение форматированного файла... (форматирование заняло {format_elapsed:.0f} сек)")
+            try:
+                wb.save(output_path)
+            except KeyboardInterrupt:
+                self.logger.warning("Прерывание при сохранении форматированного файла", "ExcelFormatter", "_create_with_openpyxl")
+                raise
+        except KeyboardInterrupt:
+            self.logger.warning("Прерывание при форматировании Excel файла", "ExcelFormatter", "_create_with_openpyxl")
+            raise
         self.logger.info(f"Файл {output_path} успешно создан с форматированием (openpyxl)")
     
     def _format_sheet_openpyxl(self, ws, df: pd.DataFrame, sheet_name: str = "", sheet_idx: int = 0, total_sheets: int = 0) -> None:
@@ -4965,7 +4993,11 @@ def main():
         
         # Сохраняем данные в Excel с форматированием (6 основных листов + статистика, если включена)
         logger.info(f"Этап 9: Сохранение результата в {output_file}", "main", "main")
-        formatter.create_formatted_excel(raw_df, summary_df, calculated_df, normalized_df, places_df, final_df, str(output_file), statistics_df)
+        try:
+            formatter.create_formatted_excel(raw_df, summary_df, calculated_df, normalized_df, places_df, final_df, str(output_file), statistics_df)
+        except KeyboardInterrupt:
+            # Прерывание при сохранении/форматировании Excel - пробрасываем дальше
+            raise
         
         if ENABLE_STATISTICS and statistics_df is not None:
             logger.info("Лист 'Статистика' добавлен в файл", "main", "main")
