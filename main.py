@@ -4706,7 +4706,7 @@ class ExcelFormatter:
             width = max(self.min_width, min(max_length + 2, self.max_width))
             ws.column_dimensions[col_letter].width = width
             
-            # Логируем прогресс только для больших листов и не чаще чем раз в 15 сек
+            # Логируем прогресс только для больших листов и не чаще чем раз в 30 сек
             if total_cols > 20 and col_idx % 10 == 0:
                 current_time = time()
                 if current_time - last_progress_time >= PROGRESS_INTERVAL:
