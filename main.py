@@ -4645,11 +4645,12 @@ class ExcelFormatter:
                 if sheet_name not in wb.sheetnames:
                     continue
                 
+                # ВСЕГДА логируем начало форматирования каждого листа
                 current_time = time()
                 elapsed = current_time - format_start_time
-                if current_time - last_progress_time >= PROGRESS_INTERVAL:
-                    self.logger.info(f"Форматирование листа '{sheet_name}' ({sheet_idx}/{total_sheets})... (прошло {elapsed:.0f} сек)")
-                    last_progress_time = current_time
+                total_rows = len(df)
+                self.logger.info(f"Начало форматирования листа '{sheet_name}' ({sheet_idx}/{total_sheets}, {total_rows} строк)... (прошло {elapsed:.0f} сек)")
+                last_progress_time = current_time
                 
                 try:
                     ws = wb[sheet_name]
@@ -4665,12 +4666,12 @@ class ExcelFormatter:
                     self.logger.warning(f"Прерывание при форматировании листа '{sheet_name}'", "ExcelFormatter", "_create_with_openpyxl")
                     raise
                 
-                # Логируем завершение форматирования каждого листа
+                # ВСЕГДА логируем завершение форматирования каждого листа
                 current_time = time()
                 elapsed = current_time - format_start_time
-                if current_time - last_progress_time >= PROGRESS_INTERVAL:
-                    self.logger.info(f"Завершено форматирование листа '{sheet_name}' ({sheet_idx}/{total_sheets}) (прошло {elapsed:.0f} сек)")
-                    last_progress_time = current_time
+                sheet_elapsed = current_time - last_progress_time
+                self.logger.info(f"Завершено форматирование листа '{sheet_name}' ({sheet_idx}/{total_sheets}) за {sheet_elapsed:.0f} сек (всего прошло {elapsed:.0f} сек)")
+                last_progress_time = current_time
             
             # Сохраняем файл
             format_elapsed = time() - format_start_time
