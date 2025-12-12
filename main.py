@@ -4546,7 +4546,7 @@ class ExcelFormatter:
         from time import time as time_func
         save_start_time = time_func()
         last_log_time = save_start_time
-        LOG_INTERVAL = 30  # Логируем прогресс каждые 30 секунд
+        LOG_INTERVAL = 15  # Логируем прогресс каждые 15 секунд для большей видимости
         
         self.logger.info("Сохранение данных в Excel...")
         try:
@@ -4555,21 +4555,56 @@ class ExcelFormatter:
                 total_raw_chunks = len(raw_chunks)
                 for chunk_idx, (sheet_name, chunk_df) in enumerate(raw_chunks, 1):
                     if len(chunk_df) > 0:
+                        # ВСЕГДА логируем перед началом сохранения каждого листа
+                        chunk_rows = len(chunk_df)
+                        chunk_cols = len(chunk_df.columns)
                         current_time = time_func()
-                        if current_time - last_log_time >= LOG_INTERVAL:
-                            elapsed = current_time - save_start_time
-                            self.logger.info(f"Сохранение листа '{sheet_name}' ({chunk_idx}/{total_raw_chunks})... (прошло {elapsed:.0f} сек)")
-                            last_log_time = current_time
+                        elapsed = current_time - save_start_time
+                        self.logger.info(
+                            f"Начало сохранения листа '{sheet_name}' ({chunk_idx}/{total_raw_chunks}): "
+                            f"{chunk_rows} строк × {chunk_cols} колонок (прошло {elapsed:.0f} сек)"
+                        )
+                        chunk_save_start = current_time
+                        last_log_time = current_time
+                        
+                        # Запускаем поток для периодического логирования во время сохранения
+                        import threading
+                        save_logging_active = threading.Event()
+                        save_logging_active.set()
+                        
+                        def log_save_progress():
+                            """Периодически логирует прогресс сохранения"""
+                            while save_logging_active.is_set():
+                                threading.Event().wait(LOG_INTERVAL)
+                                if save_logging_active.is_set():
+                                    current_time = time_func()
+                                    elapsed = current_time - save_start_time
+                                    self.logger.info(
+                                        f"Сохранение листа '{sheet_name}' ({chunk_idx}/{total_raw_chunks}) продолжается... "
+                                        f"(прошло {elapsed:.0f} сек)"
+                                    )
+                        
+                        progress_thread = threading.Thread(target=log_save_progress, daemon=True)
+                        progress_thread.start()
+                        
                         try:
                             chunk_df.to_excel(writer, sheet_name=sheet_name, index=False)
                         except KeyboardInterrupt:
+                            save_logging_active.clear()
                             self.logger.warning(f"Прерывание при сохранении листа '{sheet_name}'", "ExcelFormatter", "_create_with_openpyxl")
                             raise
+                        finally:
+                            save_logging_active.clear()
+                        
+                        # ВСЕГДА логируем после завершения сохранения
                         current_time = time_func()
-                        if current_time - last_log_time >= LOG_INTERVAL:
-                            elapsed = current_time - save_start_time
-                            self.logger.info(f"Сохранен лист '{sheet_name}' ({chunk_idx}/{total_raw_chunks}) (прошло {elapsed:.0f} сек)")
-                            last_log_time = current_time
+                        elapsed = current_time - save_start_time
+                        sheet_elapsed = current_time - chunk_save_start
+                        self.logger.info(
+                            f"Сохранен лист '{sheet_name}' ({chunk_idx}/{total_raw_chunks}) "
+                            f"за {sheet_elapsed:.0f} сек (всего прошло {elapsed:.0f} сек)"
+                        )
+                        last_log_time = current_time
                 
                 # Сохраняем остальные листы
                 other_sheets = [
@@ -4698,8 +4733,15 @@ class ExcelFormatter:
             total_sheets: Всего листов (для логирования)
         """
         from time import time
-        last_progress_time = time()
-        PROGRESS_INTERVAL = 30  # Логируем прогресс каждые 30 секунд (максимум раз в минуту)
+        format_sheet_start_time = time()
+        last_progress_time = format_sheet_start_time
+        PROGRESS_INTERVAL = 15  # Логируем прогресс каждые 15 секунд для большей видимости
+        
+        total_rows = len(df)
+        total_cols = len(df.columns)
+        
+        # Логируем начало форматирования листа
+        self.logger.info(f"Форматирование '{sheet_name}': {total_rows} строк, {total_cols} колонок")
         
         # Фиксируем первую строку и 4 колонку (после ФИО)
         ws.freeze_panes = "E2"
@@ -4714,8 +4756,10 @@ class ExcelFormatter:
             cell.fill = header_fill
             cell.alignment = header_alignment
         
-        # ОПТИМИЗАЦИЯ: Настраиваем ширину колонок (без избыточных DEBUG логов)
-        total_cols = len(df.columns)
+        self.logger.debug(f"Заголовки отформатированы для '{sheet_name}'", "ExcelFormatter", "_format_sheet_openpyxl")
+        
+        # ОПТИМИЗАЦИЯ: Настраиваем ширину колонок
+        self.logger.debug(f"Настройка ширины колонок для '{sheet_name}' ({total_cols} колонок)", "ExcelFormatter", "_format_sheet_openpyxl")
         for col_idx, column in enumerate(ws.iter_cols(min_row=1, max_row=1), start=1):
             col_letter = get_column_letter(col_idx)
             
@@ -4735,12 +4779,15 @@ class ExcelFormatter:
             width = max(self.min_width, min(max_length + 2, self.max_width))
             ws.column_dimensions[col_letter].width = width
             
-            # Логируем прогресс только для больших листов и не чаще чем раз в 30 сек
+            # Логируем прогресс для больших листов каждые 15 секунд
             if total_cols > 20 and col_idx % 10 == 0:
                 current_time = time()
                 if current_time - last_progress_time >= PROGRESS_INTERVAL:
-                    self.logger.info(f"Форматирование '{sheet_name}': колонка {col_idx}/{total_cols}")
+                    elapsed = current_time - format_sheet_start_time
+                    self.logger.info(f"Форматирование '{sheet_name}': колонка {col_idx}/{total_cols} (прошло {elapsed:.0f} сек)")
                     last_progress_time = current_time
+        
+        self.logger.debug(f"Ширина колонок настроена для '{sheet_name}'", "ExcelFormatter", "_format_sheet_openpyxl")
         
         # ОПТИМИЗАЦИЯ: Настраиваем выравнивание и форматирование для всех ячеек (батчами)
         # Определяем базовые колонки (текстовые)
@@ -4784,16 +4831,15 @@ class ExcelFormatter:
         if sheet_name.startswith("RAW"):
             # Для всех RAW листов (RAW, RAW_2, RAW_3 и т.д.): форматируем только заголовки (без обработки каждой ячейки)
             # Это значительно ускоряет форматирование для больших листов (с 44 минут до ~1 минуты)
-            total_rows = len(df)
             self.logger.info(f"Форматирование листа '{sheet_name}': упрощенный режим (только заголовки, {total_rows} строк)")
             # Для RAW листов не форматируем ячейки - только заголовки уже отформатированы выше
         else:
             # Для остальных листов: полное форматирование
-            total_rows = len(df)
             if total_rows == 0:
                 ws.auto_filter.ref = ws.dimensions
                 return
             
+            self.logger.debug(f"Начало форматирования ячеек для '{sheet_name}' ({total_rows} строк)", "ExcelFormatter", "_format_sheet_openpyxl")
             batch_size = 1000  # Обрабатываем по 1000 строк за раз
             processed_rows = 0
             
@@ -4837,9 +4883,12 @@ class ExcelFormatter:
                 # Логируем прогресс каждые 15 секунд
                 current_time = time()
                 if current_time - last_progress_time >= PROGRESS_INTERVAL:
+                    elapsed = current_time - format_sheet_start_time
                     progress_pct = (processed_rows / total_rows) * 100 if total_rows > 0 else 0
-                    self.logger.info(f"Форматирование '{sheet_name}': обработано {processed_rows}/{total_rows} строк ({progress_pct:.1f}%)")
+                    self.logger.info(f"Форматирование '{sheet_name}': обработано {processed_rows}/{total_rows} строк ({progress_pct:.1f}%, прошло {elapsed:.0f} сек)")
                     last_progress_time = current_time
+            
+            self.logger.debug(f"Форматирование ячеек завершено для '{sheet_name}'", "ExcelFormatter", "_format_sheet_openpyxl")
         
         # Включаем автофильтр
         ws.auto_filter.ref = ws.dimensions
