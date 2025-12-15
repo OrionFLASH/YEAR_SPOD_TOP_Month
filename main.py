@@ -4098,9 +4098,10 @@ class FileProcessor:
                         f"min={min_val}, max={max_val}, направление={direction}",
                         tab_number=tab_num_value,
                         class_name="FileProcessor",
-                        func_name="_normalize_group"
-                    )
+                    func_name="_normalize_group"
+                )
         
+        self.logger.debug(f"Группа {group_name}: возвращаем {len(normalized_cols)} нормализованных колонок: {list(normalized_cols.keys())}", "FileProcessor", "_normalize_group")
         return normalized_cols
     
     def _normalize_indicators(self, calculated_df: pd.DataFrame, config_manager) -> pd.DataFrame:
