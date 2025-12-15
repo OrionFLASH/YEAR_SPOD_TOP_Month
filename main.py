@@ -2539,6 +2539,12 @@ class FileProcessor:
         """
         self.logger.info("Начало сбора уникальных табельных номеров", "FileProcessor", "collect_unique_tab_numbers")
         
+        # Импортируем time для отслеживания прогресса
+        from time import time as time_func
+        process_start_time = time_func()
+        last_log_time = process_start_time
+        LOG_INTERVAL = 15  # Логируем прогресс каждые 15 секунд
+        
         # Порядок приоритета групп
         group_priority = {"OD": 1, "RA": 2, "PS": 3}
 
@@ -2600,6 +2606,10 @@ class FileProcessor:
         # Собираем все табельные номера с информацией о файлах
         all_tab_data: Dict[str, Dict[str, Any]] = {}
         
+        # Подсчитываем общее количество файлов для прогресса
+        total_files = sum(len(files) for files in self.processed_files.values())
+        processed_files_count = 0
+        
         # Проходим по группам в порядке приоритета
         for group in sorted(self.groups, key=lambda x: group_priority.get(x, 999)):
             if group not in self.processed_files:
@@ -2619,7 +2629,22 @@ class FileProcessor:
                 reverse=True
             )
             
-            for file_name, df in files_sorted:
+            # Логируем начало обработки группы
+            self.logger.info(f"Обработка группы {group}: {len(files_sorted)} файлов", "FileProcessor", "collect_unique_tab_numbers")
+            
+            for file_idx, (file_name, df) in enumerate(files_sorted, 1):
+                processed_files_count += 1
+                
+                # Периодически логируем прогресс
+                current_time = time_func()
+                if current_time - last_log_time >= LOG_INTERVAL:
+                    elapsed = current_time - process_start_time
+                    self.logger.info(
+                        f"Прогресс сбора табельных номеров: обработано {processed_files_count}/{total_files} файлов "
+                        f"(группа {group}, файл {file_idx}/{len(files_sorted)}), прошло {elapsed:.0f} сек",
+                        "FileProcessor", "collect_unique_tab_numbers"
+                    )
+                    last_log_time = current_time
                 month = extract_month_number(file_name)
                 self.logger.debug(f"Обработка файла {file_name} группы {group}, месяц {month}", "FileProcessor", "collect_unique_tab_numbers")
                 
@@ -2952,8 +2977,14 @@ class FileProcessor:
                 group_stats[key] = 0
             group_stats[key] += 1
         
+        # Логируем финальный прогресс
+        total_elapsed = time_func() - process_start_time
         self.logger.debug(f"Распределение табельных номеров по группам и месяцам: {group_stats}", "FileProcessor", "collect_unique_tab_numbers")
-        self.logger.info(f"Собрано {len(self.unique_tab_numbers)} уникальных табельных номеров", "FileProcessor", "collect_unique_tab_numbers")
+        self.logger.info(
+            f"Сбор уникальных табельных номеров завершен: собрано {len(self.unique_tab_numbers)} уникальных табельных номеров "
+            f"из {processed_files_count} файлов за {total_elapsed:.1f} сек",
+            "FileProcessor", "collect_unique_tab_numbers"
+        )
     
     def _process_file_for_raw(self, group: str, file_name: str, df: pd.DataFrame, defaults, month: int) -> Optional[pd.DataFrame]:
         """
