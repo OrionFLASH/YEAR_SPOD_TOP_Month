@@ -5246,7 +5246,9 @@ class ExcelFormatter:
             return
         
         all_tab_numbers = debug_tracker.get_all_tab_numbers()
-        self.logger.info(f"Получены табельные номера из трекера: {all_tab_numbers} (всего {len(all_tab_numbers)})", "ExcelFormatter", "_create_debug_tab_sheets")
+        # Табельные номера в списке будут замаскированы при выводе каждого элемента, но сам список не маскируется
+        # Логируем только количество, без вывода самих номеров
+        self.logger.info(f"Получены табельные номера из трекера: всего {len(all_tab_numbers)}", "ExcelFormatter", "_create_debug_tab_sheets")
         self.logger.info(f"Все ключи в tab_data: {list(debug_tracker.tab_data.keys())}", "ExcelFormatter", "_create_debug_tab_sheets")
         
         if len(all_tab_numbers) == 0:
@@ -5263,7 +5265,8 @@ class ExcelFormatter:
             tab_data = debug_tracker.get_tab_data(tab_number)
             if not tab_data:
                 # Пробуем найти через прямой доступ к tab_data
-                self.logger.warning(f"get_tab_data вернул None для {tab_number}. Пробуем прямой доступ...", "ExcelFormatter", "_create_debug_tab_sheets")
+                # Табельный номер будет замаскирован в _mask_sensitive_data
+                self.logger.warning(f"get_tab_data вернул None для табельного номера: {tab_number}. Пробуем прямой доступ...", "ExcelFormatter", "_create_debug_tab_sheets")
                 self.logger.info(f"Доступные ключи в tab_data: {list(debug_tracker.tab_data.keys())}", "ExcelFormatter", "_create_debug_tab_sheets")
                 
                 # Пробуем найти через нормализацию
@@ -5273,7 +5276,8 @@ class ExcelFormatter:
                 
                 if tab_num_normalized in debug_tracker.tab_data:
                     tab_data = debug_tracker.tab_data[tab_num_normalized]
-                    self.logger.info(f"Найдены данные по нормализованному ключу: {tab_num_normalized}", "ExcelFormatter", "_create_debug_tab_sheets")
+                    # Табельный номер будет замаскирован в _mask_sensitive_data
+                    self.logger.info(f"Найдены данные по нормализованному ключу табельного номера: {tab_num_normalized}", "ExcelFormatter", "_create_debug_tab_sheets")
                 elif tab_num_str in debug_tracker.tab_data:
                     tab_data = debug_tracker.tab_data[tab_num_str]
                     self.logger.info(f"Найдены данные по оригинальному ключу: {tab_num_str}", "ExcelFormatter", "_create_debug_tab_sheets")
