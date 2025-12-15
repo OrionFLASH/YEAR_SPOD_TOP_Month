@@ -2961,6 +2961,26 @@ class FileProcessor:
                             class_name="FileProcessor",
                             func_name="collect_unique_tab_numbers"
                         )
+                
+                # Логируем завершение обработки файла (INFO уровень для видимости прогресса)
+                # Подсчитываем количество табельных номеров из этого файла, которые были добавлены в all_tab_data
+                file_tab_count = sum(1 for tn_data in all_tab_data.values() 
+                                    if tn_data.get('group') == group and tn_data.get('month') == month)
+                self.logger.info(
+                    f"Обработан файл {file_name} (группа {group}, месяц M-{month}): "
+                    f"найдено {len(df_unique) if 'df_unique' in locals() else 0} уникальных табельных номеров в файле, "
+                    f"добавлено в общий список: {file_tab_count}",
+                    "FileProcessor", "collect_unique_tab_numbers"
+                )
+            
+            # Логируем завершение обработки группы
+            group_elapsed = time_func() - group_start_time
+            group_tab_count = sum(1 for tn in all_tab_data.values() if tn.get('group') == group)
+            self.logger.info(
+                f"Группа {group} обработана: {len(files_sorted)} файлов, "
+                f"собрано {group_tab_count} табельных номеров за {group_elapsed:.1f} сек",
+                "FileProcessor", "collect_unique_tab_numbers"
+            )
         
         self.unique_tab_numbers = all_tab_data
         
