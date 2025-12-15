@@ -4221,13 +4221,20 @@ class FileProcessor:
                             # normalized - это Series с индексами из calculated_df.index
                             # normalized_df имеет те же индексы (так как создан как копия calculated_df[base_columns])
                             # Проверяем совпадение индексов
-                            if list(normalized.index) == list(normalized_df.index):
+                            indices_match = list(normalized.index) == list(normalized_df.index)
+                            if indices_match:
                                 # Индексы совпадают - простое присваивание
                                 normalized_df[norm_col_name] = normalized
+                                self.logger.debug(f"Добавлена колонка {norm_col_name} в normalized_df (простое присваивание, индексы совпадают)", "FileProcessor", "_normalize_indicators")
                             else:
                                 # Индексы не совпадают - используем loc с индексами
-                                normalized_df.loc[normalized.index, norm_col_name] = normalized
-                            self.logger.debug(f"Добавлена колонка {norm_col_name} в normalized_df (длина Series: {len(normalized)}, длина normalized_df: {len(normalized_df)}, индексы совпадают: {list(normalized.index)[:3] == list(normalized_df.index)[:3]})", "FileProcessor", "_normalize_indicators")
+                                # Выравниваем по общим индексам
+                                common_indices = normalized.index.intersection(normalized_df.index)
+                                if len(common_indices) > 0:
+                                    normalized_df.loc[common_indices, norm_col_name] = normalized.loc[common_indices]
+                                    self.logger.debug(f"Добавлена колонка {norm_col_name} в normalized_df (loc с индексами, общих индексов: {len(common_indices)})", "FileProcessor", "_normalize_indicators")
+                                else:
+                                    self.logger.error(f"Группа {group_name}, колонка {norm_col_name}: нет общих индексов! normalized.index: {list(normalized.index)[:5]}, normalized_df.index: {list(normalized_df.index)[:5]}", "FileProcessor", "_normalize_indicators")
                     else:
                         self.logger.warning(f"Группа {group_name}: normalized_cols пустой! Колонки не были созданы. Проверьте логи выше для диагностики.", "FileProcessor", "_normalize_indicators")
                 except Exception as e:
