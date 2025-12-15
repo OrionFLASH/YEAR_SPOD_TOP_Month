@@ -462,7 +462,7 @@ config_manager.add_file_config("OD", "special_file.xlsx", custom_config)
 - `prepare_raw_data() -> pd.DataFrame` - Подготавливает сырые данные для листа "RAW" (параллельная обработка всех файлов). Также собирает данные для debug_tracker. Если `ENABLE_RAW_SHEETS=False`, сразу возвращает пустой DataFrame без обработки
 - `prepare_summary_data() -> pd.DataFrame` - Подготавливает сводные данные для листа "Исходник" (оптимизировано: параллельное создание индексов и `groupby()` вместо фильтрации в циклах)
 - `prepare_calculated_data(summary_df: pd.DataFrame) -> pd.DataFrame` - Подготавливает расчетные данные для листа "Расчет"
-- `_normalize_indicators(calculated_df: pd.DataFrame, config_manager) -> pd.DataFrame` - Нормализует показатели для расчета лучшего месяца (вариант 3, параллельная нормализация всех групп)
+- `_normalize_indicators(calculated_df: pd.DataFrame, config_manager) -> pd.DataFrame` - Нормализует показатели для расчета лучшего месяца (вариант 3, параллельная нормализация всех групп). Включает расширенное логирование для диагностики проблем с нормализацией
 - `_calculate_best_month_variant3(calculated_df: pd.DataFrame, normalized_df: pd.DataFrame, config_manager, raw_df: Optional[pd.DataFrame] = None) -> Tuple[pd.DataFrame, pd.DataFrame]` - Рассчитывает Score (параллельно для всех месяцев), ранги и определяет лучший месяц для каждого КМ. Также собирает данные для debug_tracker
 - `prepare_statistics_sheet() -> Optional[pd.DataFrame]` - Формирует лист со статистикой обработки данных (если ENABLE_STATISTICS = True)
 - `_log_statistics() -> None` - Выводит статистику в лог
@@ -606,6 +606,14 @@ FileItem(key="OD_02", ..., calculation_type=3, three_periods_first_months="self_
 
 ### Версия 1.12.0
 **Дата:** 2025-12-15
+
+**Добавлено логирование прогресса и оптимизация RAW данных:**
+- ✅ Добавлено периодическое логирование прогресса в `collect_unique_tab_numbers`: каждые 15 секунд выводится информация о количестве обработанных файлов, текущей группе и времени выполнения
+- ✅ Добавлено логирование после обработки каждого файла и каждой группы для постоянной видимости прогресса
+- ✅ Добавлена проверка `ENABLE_RAW_SHEETS` в `prepare_raw_data` и `_process_file_for_raw`: при `False` подготовка RAW данных полностью пропускается для экономии времени
+- ✅ Добавлено расширенное логирование в `_normalize_indicators` для диагностики проблем с нормализацией: логируются все колонки, найденные колонки для нормализации, результат парсинга, добавление колонок в normalized_df
+- ✅ Добавлена проверка `month_data` перед началом нормализации: если пустой, возвращается normalized_df с только базовыми колонками
+- ✅ Улучшена обработка ошибок при нормализации: добавлена трассировка ошибок
 
 **Добавлены триггеры для RAW листов и форматирования:**
 - ✅ Добавлен параметр `ENABLE_RAW_SHEETS` (bool, по умолчанию False): триггер для включения/выключения формирования RAW листов
