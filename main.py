@@ -3995,10 +3995,15 @@ class FileProcessor:
             col = month_data[month].get(group_name)
             if col and col in calculated_df.columns:
                 group_cols[month] = col
+            else:
+                if col:
+                    self.logger.debug(f"Группа {group_name}, месяц {month}: колонка '{col}' не найдена в calculated_df. Доступные колонки: {list(calculated_df.columns)[:10]}...", "FileProcessor", "_normalize_group")
         
         if not group_cols:
             self.logger.warning(f"Группа {group_name}: не найдено ни одной колонки для нормализации. month_data содержит: {month_data}", "FileProcessor", "_normalize_group")
             return {}
+        
+        self.logger.debug(f"Группа {group_name}: найдено {len(group_cols)} колонок для нормализации: {list(group_cols.values())[:5]}...", "FileProcessor", "_normalize_group")
         
         normalized_cols = {}
         
@@ -4066,7 +4071,13 @@ class FileProcessor:
             # Защита от выхода за границы [0, 1] (из-за погрешности вычислений)
             normalized = normalized.clip(0.0, 1.0)
             
+            # ВАЖНО: Убеждаемся, что normalized имеет правильный индекс (из calculated_df)
+            if normalized.index is None or len(normalized.index) == 0:
+                self.logger.error(f"Группа {group_name}, месяц {month}: normalized Series имеет пустой индекс!", "FileProcessor", "_normalize_group")
+                continue
+            
             normalized_cols[norm_col_name] = normalized
+            self.logger.debug(f"Группа {group_name}, месяц {month}: создана нормализованная колонка {norm_col_name} (длина: {len(normalized)}, индекс: {list(normalized.index)[:3]}...)", "FileProcessor", "_normalize_group")
             
             # ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ: Логируем нормализацию для указанного табельного
             if DEBUG_TAB_NUMBER and len(DEBUG_TAB_NUMBER) > 0 and "Табельный" in calculated_df.columns:
