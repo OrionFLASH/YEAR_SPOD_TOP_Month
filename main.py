@@ -1020,10 +1020,10 @@ class Logger:
     def _mask_fio(self, text: str) -> str:
         """
         Маскирует ФИО в тексте: от каждого слова оставляем первые 2 буквы, далее три звездочки и последняя 1 буква.
-        Пример: Петров Иван Владимирович -> Пе***в Ив***н Вл***ч
+        Пример: Иванов Иван Сергеевич -> Ив***в Ив***н Се***ч
         
-        ВАЖНО: Маскирует только ФИО в контексте структурированных данных (после "ФИО:", "ВКО:", "КМ:" и т.д.)
-        или в значениях словарей/структур. НЕ маскирует обычные слова в логах типа "Обработка", "Загрузка" и т.д.
+        Маскирует ФИО во всех контекстах: после меток "ФИО:", "ВКО:", "КМ:", "fio:" и т.д.,
+        в структурированных данных, в значениях словарей, и просто в тексте (если это похоже на ФИО).
         
         Args:
             text: Текст для маскировки
@@ -1032,7 +1032,7 @@ class Logger:
             str: Текст с замаскированными ФИО
         """
         def mask_fio_word(word: str) -> str:
-            """Маскирует одно слово ФИО."""
+            """Маскирует одно слово ФИО: первые 2 буквы, затем ***, затем последняя буква."""
             if len(word) >= 4:
                 return f"{word[:2]}***{word[-1]}"
             elif len(word) >= 3:
@@ -1046,9 +1046,9 @@ class Logger:
             masked_words = [mask_fio_word(word) for word in words]
             return ' '.join(masked_words)
         
-        # Паттерн 1: ФИО после меток типа "ФИО:", "ВКО:", "КМ:" и т.д. (с двоеточием или равно)
-        # Ищем паттерн типа "ФИО='Петров Иван'" или "ВКО: Иванов" или "КМ=\"Сидоров\""
-        pattern1 = r"(ФИО|ВКО|КМ)\s*[:=]\s*['\"]([А-ЯЁ][а-яё]{2,}(?:\s+[А-ЯЁ][а-яё]{2,}){0,2})['\"]"
+        # Паттерн 1: ФИО после меток типа "ФИО:", "ВКО:", "КМ:", "fio:" и т.д. (с двоеточием или равно, с кавычками)
+        # Ищем паттерн типа "ФИО='Петров Иван'" или "ВКО: 'Иванов'" или "КМ=\"Сидоров\"" или "fio: 'Иванов'"
+        pattern1 = r"(ФИО|ВКО|КМ|fio|FIO)\s*[:=]\s*['\"]([А-ЯЁ][а-яё]{2,}(?:\s+[А-ЯЁ][а-яё]{2,}){0,2})['\"]"
         def replace_fio1(match):
             label = match.group(1)
             fio_text = match.group(2)
@@ -1056,19 +1056,59 @@ class Logger:
             return f"{label}='{masked}'"
         text = re.sub(pattern1, replace_fio1, text, flags=re.IGNORECASE)
         
-        # Паттерн 2: ФИО в контексте "ФИО='...'" (уже обработанный выше, но для надежности)
-        pattern2 = r"(ФИО\s*=\s*['\"])([А-ЯЁ][а-яё]{2,}(?:\s+[А-ЯЁ][а-яё]{2,}){0,2})(['\"])"
+        # Паттерн 2: ФИО после меток без кавычек (например, "ФИО: Иванов Иван Сергеевич" или "ФИО=Иванов Иван Сергеевич")
+        # Ищем паттерн типа "ФИО: Иванов Иван Сергеевич" или "fio: Петров Иван" или "ФИО=Иванов Иван"
+        pattern2 = r"(ФИО|ВКО|КМ|fio|FIO)\s*([:=])\s*([А-ЯЁ][а-яё]{2,}(?:\s+[А-ЯЁ][а-яё]{2,}){0,2})(?=\s|$|,|;|\.|\[|\]|\})"
         def replace_fio2(match):
+            label = match.group(1)
+            separator = match.group(2)
+            fio_text = match.group(3)
+            masked = mask_fio_text(fio_text)
+            return f"{label}{separator} {masked}"
+        text = re.sub(pattern2, replace_fio2, text, flags=re.IGNORECASE)
+        
+        # Паттерн 3: ФИО в контексте "ФИО='...'" или "ФИО=\"...\"" (с кавычками)
+        pattern3 = r"(ФИО\s*=\s*['\"])([А-ЯЁ][а-яё]{2,}(?:\s+[А-ЯЁ][а-яё]{2,}){0,2})(['\"])"
+        def replace_fio3(match):
             prefix = match.group(1)
             fio_text = match.group(2)
             suffix = match.group(3)
             masked = mask_fio_text(fio_text)
             return prefix + masked + suffix
-        text = re.sub(pattern2, replace_fio2, text, flags=re.IGNORECASE)
+        text = re.sub(pattern3, replace_fio3, text, flags=re.IGNORECASE)
         
-        # Паттерн 3: ФИО в структурированных данных типа "{'ФИО': 'Петров Иван'}"
-        pattern3 = r"(['\"]ФИО['\"]\s*:\s*['\"])([А-ЯЁ][а-яё]{2,}(?:\s+[А-ЯЁ][а-яё]{2,}){0,2})(['\"])"
-        text = re.sub(pattern3, replace_fio2, text, flags=re.IGNORECASE)
+        # Паттерн 4: ФИО в структурированных данных типа "{'ФИО': 'Петров Иван'}" или "{'fio': 'Иванов'}"
+        pattern4 = r"(['\"]ФИО['\"]|['\"]fio['\"])\s*:\s*['\"]([А-ЯЁ][а-яё]{2,}(?:\s+[А-ЯЁ][а-яё]{2,}){0,2})['\"]"
+        def replace_fio4(match):
+            key = match.group(1)
+            fio_text = match.group(2)
+            masked = mask_fio_text(fio_text)
+            return f"{key}: '{masked}'"
+        text = re.sub(pattern4, replace_fio4, text, flags=re.IGNORECASE)
+        
+        # Паттерн 5: ФИО в структурированных данных без кавычек типа "{'ФИО': Петров Иван}" (редкий случай)
+        pattern5 = r"(['\"]ФИО['\"]|['\"]fio['\"])\s*:\s+([А-ЯЁ][а-яё]{2,}(?:\s+[А-ЯЁ][а-яё]{2,}){0,2})(?=\s|$|,|;|\.|\[|\})"
+        def replace_fio5(match):
+            key = match.group(1)
+            fio_text = match.group(2)
+            masked = mask_fio_text(fio_text)
+            return f"{key}: {masked}"
+        text = re.sub(pattern5, replace_fio5, text, flags=re.IGNORECASE)
+        
+        # Паттерн 6: ФИО в значениях словарей/структур типа "ФИО='Иванов'" или "fio='Петров'"
+        pattern6 = r"([\"'])([А-ЯЁ][а-яё]{2,}(?:\s+[А-ЯЁ][а-яё]{2,}){0,2})\1(?=\s*[,:}\]]|\s*$)"
+        # Этот паттерн более агрессивный, но может замаскировать не только ФИО
+        # Применяем его только если текст содержит метки ФИО/КМ/ВКО
+        if re.search(r'(ФИО|ВКО|КМ|fio|FIO)', text, re.IGNORECASE):
+            def replace_fio6(match):
+                quote = match.group(1)
+                fio_text = match.group(2)
+                # Проверяем, что это похоже на ФИО (начинается с заглавной буквы, содержит только буквы)
+                if re.match(r'^[А-ЯЁ][а-яё]{2,}(?:\s+[А-ЯЁ][а-яё]{2,}){0,2}$', fio_text):
+                    masked = mask_fio_text(fio_text)
+                    return f"{quote}{masked}{quote}"
+                return match.group(0)
+            text = re.sub(pattern6, replace_fio6, text)
         
         return text
     
@@ -5938,6 +5978,64 @@ def main():
     logger.info("=" * 80, "main", "main")
     logger.info("Запуск обработки месячных данных", "main", "main")
     logger.info("=" * 80, "main", "main")
+    
+    # Логируем все параметры конфигурации
+    logger.info("", "main", "main")
+    logger.info("ПАРАМЕТРЫ КОНФИГУРАЦИИ ПРИЛОЖЕНИЯ:", "main", "main")
+    logger.info("-" * 80, "main", "main")
+    
+    # Пути к каталогам
+    logger.info(f"INPUT_DIR = '{INPUT_DIR}' - Каталог с входными данными", "main", "main")
+    logger.info(f"OUTPUT_DIR = '{OUTPUT_DIR}' - Каталог для выходных файлов", "main", "main")
+    logger.info(f"LOG_DIR = '{LOG_DIR}' - Каталог для логов", "main", "main")
+    
+    # Параметры логирования
+    logger.info(f"LOG_LEVEL = '{LOG_LEVEL}' - Уровень логирования: DEBUG (в файлы) - детальное, INFO (в консоль) - верхнеуровневое", "main", "main")
+    logger.info(f"LOG_THEME = '{LOG_THEME}' - Тема логов (используется в имени файла)", "main", "main")
+    
+    # Параметры статистики
+    logger.info(f"ENABLE_STATISTICS = {ENABLE_STATISTICS} - Сбор и вывод статистики: True - собирать статистику и создавать лист 'Статистика', False - не собирать", "main", "main")
+    
+    # Параметры оптимизации производительности
+    logger.info(f"ENABLE_PARALLEL_LOADING = {ENABLE_PARALLEL_LOADING} - Параллельная загрузка файлов: True - параллельная загрузка, False - последовательная", "main", "main")
+    logger.info(f"MAX_WORKERS = {MAX_WORKERS} - Количество потоков для параллельной загрузки (рекомендуется 8 по числу виртуальных ядер)", "main", "main")
+    logger.info(f"ENABLE_CHUNKING = {ENABLE_CHUNKING} - Использование chunking для больших файлов: True - использовать chunking, False - загружать целиком (chunking медленный, отключен)", "main", "main")
+    logger.info(f"CHUNK_SIZE = {CHUNK_SIZE} - Размер chunk для чтения больших файлов (строк)", "main", "main")
+    logger.info(f"CHUNKING_THRESHOLD_MB = {CHUNKING_THRESHOLD_MB} - Порог размера файла для chunking (МБ) - если файл больше, используем chunking", "main", "main")
+    
+    # Параметры детального логирования
+    debug_tab_str = str(DEBUG_TAB_NUMBER) if DEBUG_TAB_NUMBER else "None"
+    logger.info(f"DEBUG_TAB_NUMBER = {debug_tab_str} - Список табельных номеров для детального логирования (например, ['12345678', '87654321'] или None для отключения)", "main", "main")
+    if DEBUG_TAB_NUMBER and len(DEBUG_TAB_NUMBER) > 0:
+        logger.info(f"  Детальное логирование включено для табельных номеров: {', '.join(DEBUG_TAB_NUMBER)}", "main", "main")
+    else:
+        logger.info(f"  Детальное логирование отключено", "main", "main")
+    
+    # Параметр выбора режима данных
+    logger.info(f"DATA_MODE = '{DATA_MODE}' - Режим данных: 'TEST' - тестовые данные, 'PROM' - пром данные. Определяет, какие columns использовать из конфигурации (columns_test или columns_prom)", "main", "main")
+    
+    # Триггер для формирования RAW листов
+    logger.info(f"ENABLE_RAW_SHEETS = {ENABLE_RAW_SHEETS} - Формирование RAW листов: True - формировать RAW листы, False - не формировать (по умолчанию выключено)", "main", "main")
+    
+    # Триггер для форматирования листов
+    formatting_desc = {
+        "full": "полное форматирование (как сейчас, по умолчанию)",
+        "off": "форматирование выключено (листы формируются, но не переформатируются, кроме ТН и ИНН - их форматы всегда работают)",
+        "simple": "упрощенное форматирование (только ТН, ИНН, ФИО, ТБ, ГОСБ и заголовок, не форматируем данные показателей и расчетов)"
+    }
+    logger.info(f"FORMATTING_MODE = '{FORMATTING_MODE}' - Режим форматирования: {formatting_desc.get(FORMATTING_MODE, 'неизвестный режим')}", "main", "main")
+    
+    # Информация о маппинге ТБ
+    logger.info(f"TB_MAPPINGS - Маппинг территориальных банков: определено {len(TB_MAPPINGS)} банков", "main", "main")
+    if len(TB_MAPPINGS) > 0:
+        tb_list = ", ".join([f"{key} ({mapping.short_name})" for key, mapping in TB_MAPPINGS.items()])
+        logger.info(f"  Банки: {tb_list}", "main", "main")
+    
+    # Информация о доступности openpyxl
+    logger.info(f"OPENPYXL_AVAILABLE = {OPENPYXL_AVAILABLE} - Доступность openpyxl для форматирования Excel файлов", "main", "main")
+    
+    logger.info("-" * 80, "main", "main")
+    logger.info("", "main", "main")
     
     try:
         # Создаем выходной каталог, если его нет
