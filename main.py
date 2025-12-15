@@ -59,7 +59,7 @@ CHUNK_SIZE = 50000  # Размер chunk для чтения больших фа
 CHUNKING_THRESHOLD_MB = 200  # Порог размера файла для chunking (МБ) - если файл больше, используем chunking
 
 # Параметры детального логирования
-DEBUG_TAB_NUMBER: Optional[List[str]] = None  # Список табельных номеров для детального логирования (например, ["12345678", "87654321"] или None для отключения)
+DEBUG_TAB_NUMBER: Optional[List[str]] = ["08346532"]  # Список табельных номеров для детального логирования (например, ["12345678", "87654321"] или None для отключения)
 # Если указан список, в лог будет записываться подробная информация о всех операциях с этими табельными номерами
 # Если список пустой или None, детальное логирование отключено
 
@@ -74,7 +74,7 @@ ENABLE_RAW_SHEETS: bool = False  # True - формировать RAW листы,
 # "full" - полное форматирование (как сейчас, по умолчанию)
 # "off" - форматирование выключено (листы формируются, но не переформатируются, кроме ТН и ИНН - их форматы всегда работают)
 # "simple" - упрощенное форматирование (только ТН, ИНН, ФИО, ТБ, ГОСБ и заголовок, не форматируем данные показателей и расчетов)
-FORMATTING_MODE: str = "full"  # "full", "off", "simple"
+FORMATTING_MODE: str = "simple"  # "full", "off", "simple"
 
 
 # ============================================================================
@@ -1320,9 +1320,12 @@ class DebugTabNumberTracker:
         self.tab_data: Dict[str, Dict[str, Any]] = {}
         
         # Инициализируем структуру для каждого табельного номера из DEBUG_TAB_NUMBER
+        # ВАЖНО: Нормализуем табельные номера (8 знаков с лидирующими нулями) для совместимости
         if DEBUG_TAB_NUMBER and len(DEBUG_TAB_NUMBER) > 0:
             for tab_num in DEBUG_TAB_NUMBER:
-                self.tab_data[tab_num] = {
+                # Нормализуем табельный номер: убираем пробелы, добавляем лидирующие нули до 8 знаков
+                tab_num_normalized = str(tab_num).strip().zfill(8)
+                self.tab_data[tab_num_normalized] = {
                     "source_files": {},
                     "raw_data": {},
                     "calculations": {},
@@ -1331,6 +1334,9 @@ class DebugTabNumberTracker:
                     "best_month": None,
                     "unique_inn_count": 0
                 }
+                # Также сохраняем оригинальный номер для обратной совместимости
+                if tab_num_normalized != str(tab_num).strip():
+                    self.tab_data[str(tab_num).strip()] = self.tab_data[tab_num_normalized]
     
     def add_source_file_data(self, tab_number: str, file_name: str, group: str, month: int,
                              clients_data: List[Dict[str, Any]], tb_variants: Dict[str, float],
@@ -1348,10 +1354,16 @@ class DebugTabNumberTracker:
             selected_tb: Выбранный ТБ
             selected_sum: Сумма выбранного варианта
         """
-        if tab_number not in self.tab_data:
-            return
+        # Нормализуем табельный номер для поиска в трекере
+        tab_number_normalized = str(tab_number).strip().zfill(8)
+        if tab_number_normalized not in self.tab_data:
+            # Пробуем найти без нормализации
+            tab_number_str = str(tab_number).strip()
+            if tab_number_str not in self.tab_data:
+                return
+            tab_number_normalized = tab_number_str
         
-        self.tab_data[tab_number]["source_files"][file_name] = {
+        self.tab_data[tab_number_normalized]["source_files"][file_name] = {
             "group": group,
             "month": month,
             "clients": clients_data,
@@ -1368,10 +1380,15 @@ class DebugTabNumberTracker:
             tab_number: Табельный номер
             raw_data: Данные по ИНН после схлопывания
         """
-        if tab_number not in self.tab_data:
-            return
+        # Нормализуем табельный номер для поиска в трекере
+        tab_number_normalized = str(tab_number).strip().zfill(8)
+        if tab_number_normalized not in self.tab_data:
+            tab_number_str = str(tab_number).strip()
+            if tab_number_str not in self.tab_data:
+                return
+            tab_number_normalized = tab_number_str
         
-        self.tab_data[tab_number]["raw_data"] = raw_data
+        self.tab_data[tab_number_normalized]["raw_data"] = raw_data
     
     def add_calculations(self, tab_number: str, calculations: Dict[str, Dict[str, float]]) -> None:
         """
@@ -1381,10 +1398,15 @@ class DebugTabNumberTracker:
             tab_number: Табельный номер
             calculations: Результаты расчетов по месяцам
         """
-        if tab_number not in self.tab_data:
-            return
+        # Нормализуем табельный номер для поиска в трекере
+        tab_number_normalized = str(tab_number).strip().zfill(8)
+        if tab_number_normalized not in self.tab_data:
+            tab_number_str = str(tab_number).strip()
+            if tab_number_str not in self.tab_data:
+                return
+            tab_number_normalized = tab_number_str
         
-        self.tab_data[tab_number]["calculations"] = calculations
+        self.tab_data[tab_number_normalized]["calculations"] = calculations
     
     def add_normalization(self, tab_number: str, normalization: Dict[str, Dict[str, float]]) -> None:
         """
@@ -1394,10 +1416,15 @@ class DebugTabNumberTracker:
             tab_number: Табельный номер
             normalization: Нормализованные значения по месяцам
         """
-        if tab_number not in self.tab_data:
-            return
+        # Нормализуем табельный номер для поиска в трекере
+        tab_number_normalized = str(tab_number).strip().zfill(8)
+        if tab_number_normalized not in self.tab_data:
+            tab_number_str = str(tab_number).strip()
+            if tab_number_str not in self.tab_data:
+                return
+            tab_number_normalized = tab_number_str
         
-        self.tab_data[tab_number]["normalization"] = normalization
+        self.tab_data[tab_number_normalized]["normalization"] = normalization
     
     def add_scores(self, tab_number: str, scores: Dict[str, float], best_month: str) -> None:
         """
@@ -1408,11 +1435,16 @@ class DebugTabNumberTracker:
             scores: Score по месяцам
             best_month: Лучший месяц
         """
-        if tab_number not in self.tab_data:
-            return
+        # Нормализуем табельный номер для поиска в трекере
+        tab_number_normalized = str(tab_number).strip().zfill(8)
+        if tab_number_normalized not in self.tab_data:
+            tab_number_str = str(tab_number).strip()
+            if tab_number_str not in self.tab_data:
+                return
+            tab_number_normalized = tab_number_str
         
-        self.tab_data[tab_number]["scores"] = scores
-        self.tab_data[tab_number]["best_month"] = best_month
+        self.tab_data[tab_number_normalized]["scores"] = scores
+        self.tab_data[tab_number_normalized]["best_month"] = best_month
     
     def set_unique_inn_count(self, tab_number: str, count: int) -> None:
         """
@@ -1422,10 +1454,15 @@ class DebugTabNumberTracker:
             tab_number: Табельный номер
             count: Количество уникальных ИНН
         """
-        if tab_number not in self.tab_data:
-            return
+        # Нормализуем табельный номер для поиска в трекере
+        tab_number_normalized = str(tab_number).strip().zfill(8)
+        if tab_number_normalized not in self.tab_data:
+            tab_number_str = str(tab_number).strip()
+            if tab_number_str not in self.tab_data:
+                return
+            tab_number_normalized = tab_number_str
         
-        self.tab_data[tab_number]["unique_inn_count"] = count
+        self.tab_data[tab_number_normalized]["unique_inn_count"] = count
     
     def get_tab_data(self, tab_number: str) -> Optional[Dict[str, Any]]:
         """
@@ -4861,15 +4898,24 @@ class ExcelFormatter:
             debug_tracker: Трекер с собранными данными
             writer: ExcelWriter для записи листов
         """
-        if not debug_tracker or len(debug_tracker.get_all_tab_numbers()) == 0:
+        if not debug_tracker:
+            self.logger.warning("debug_tracker не передан в _create_debug_tab_sheets", "ExcelFormatter", "_create_debug_tab_sheets")
             return
         
-        self.logger.info(f"Создание детальных листов для {len(debug_tracker.get_all_tab_numbers())} табельных номеров", "ExcelFormatter", "_create_debug_tab_sheets")
+        all_tab_numbers = debug_tracker.get_all_tab_numbers()
+        if len(all_tab_numbers) == 0:
+            self.logger.warning("В debug_tracker нет табельных номеров для создания детальных листов", "ExcelFormatter", "_create_debug_tab_sheets")
+            return
         
-        for tab_number in debug_tracker.get_all_tab_numbers():
+        self.logger.info(f"Создание детальных листов для {len(all_tab_numbers)} табельных номеров: {all_tab_numbers}", "ExcelFormatter", "_create_debug_tab_sheets")
+        
+        for tab_number in all_tab_numbers:
             tab_data = debug_tracker.get_tab_data(tab_number)
             if not tab_data:
+                self.logger.warning(f"Нет данных для табельного номера {tab_number} в debug_tracker", "ExcelFormatter", "_create_debug_tab_sheets")
                 continue
+            
+            self.logger.info(f"Обработка табельного номера {tab_number}: source_files={len(tab_data.get('source_files', {}))}, raw_data={len(tab_data.get('raw_data', {}))}", "ExcelFormatter", "_create_debug_tab_sheets")
             
             # Создаем лист для каждого табельного номера
             sheet_name = f"Детально_{tab_number}"
@@ -5046,9 +5092,9 @@ class ExcelFormatter:
                 
                 debug_df = pd.DataFrame(all_rows)
                 debug_df.to_excel(writer, sheet_name=sheet_name, index=False, header=False)
-                
-                # Форматируем детальный лист после сохранения
-                # Это будет сделано в _create_with_openpyxl после загрузки файла
+                self.logger.info(f"Создан детальный лист '{sheet_name}' для табельного номера {tab_number}", "ExcelFormatter", "_create_debug_tab_sheets")
+            else:
+                self.logger.warning(f"Нет данных для создания детального листа '{sheet_name}' для табельного номера {tab_number}", "ExcelFormatter", "_create_debug_tab_sheets")
     
     def _create_with_openpyxl(self, raw_df: pd.DataFrame, summary_df: pd.DataFrame, calculated_df: pd.DataFrame,
                              normalized_df: pd.DataFrame, places_df: pd.DataFrame, final_df: pd.DataFrame,
