@@ -4144,6 +4144,10 @@ class FileProcessor:
                     month_data[month] = {}
                 month_data[month][group] = col
                 self.logger.debug(f"Найдена колонка для нормализации: {col} -> группа={group}, месяц={month}", "FileProcessor", "_normalize_indicators")
+            else:
+                # Логируем колонки, которые не подходят под паттерн (только первые 10 для экономии места)
+                if len([c for c in calculated_df.columns if c not in base_columns and not re.search(r'^([A-Z]+)\s+\(M-(\d{1,2})\)', c)]) <= 10:
+                    self.logger.debug(f"Колонка '{col}' не подходит под паттерн нормализации (ожидается формат 'ГРУППА (M-номер)')", "FileProcessor", "_normalize_indicators")
         
         # Логируем результат парсинга
         if month_data:
