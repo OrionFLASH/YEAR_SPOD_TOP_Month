@@ -3920,7 +3920,7 @@ class FileProcessor:
                         
                         # ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ: Логируем расчет для указанного табельного
                         if DEBUG_TAB_NUMBER and "Табельный" in summary_df.columns:
-                            debug_mask = summary_df["Табельный"].astype(str).str.strip().str.lstrip('0') == str(DEBUG_TAB_NUMBER).strip().lstrip('0')
+                            debug_mask = self._create_debug_tab_mask(summary_df, "Табельный")
                             if debug_mask.any():
                                 debug_idx = summary_df[debug_mask].index[0]
                                 curr_val_debug = curr_val.loc[debug_idx] if debug_idx in curr_val.index else 0
@@ -4480,7 +4480,7 @@ class FileProcessor:
         
         # ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ: Логируем расчет рангов для указанного табельного
         if DEBUG_TAB_NUMBER and "Табельный" in calculated_df.columns:
-            debug_mask = calculated_df["Табельный"].astype(str).str.strip().str.lstrip('0') == str(DEBUG_TAB_NUMBER).strip().lstrip('0')
+            debug_mask = self._create_debug_tab_mask(calculated_df, "Табельный")
             if debug_mask.any():
                 debug_idx = calculated_df[debug_mask].index[0]
                 ranks_info = {}
