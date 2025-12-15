@@ -2159,11 +2159,11 @@ class FileProcessor:
                         fio_value = row.get(defaults.fio_column, '')
                         indicator_value = row.get(indicator_col, 0)
                         
-                        # ФИО и табельный номер уже будут замаскированы в _mask_sensitive_data при логировании
+                        # ФИО, табельный номер и client_id уже будут замаскированы в _mask_sensitive_data при логировании
                         tab_number_value = str(row.get(tab_number_col, ''))
                         self.logger.debug_tab(
                             f"Загрузка файла {file_path.name} (группа {group_name}): найдена строка для ТН. "
-                            f"Табельный: {tab_number_value}, Клиент: {client_id}, ТБ: {tb_value}, ФИО: {fio_value}, "
+                            f"Табельный: {tab_number_value}, client_id: {client_id}, ТБ: {tb_value}, ФИО: {fio_value}, "
                             f"Показатель ({indicator_col}): {indicator_value}",
                             tab_number=row.get(tab_number_col),
                             class_name="FileProcessor",
