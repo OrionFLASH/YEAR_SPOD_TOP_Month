@@ -6085,6 +6085,125 @@ def main():
         logger.info(f"Входной каталог: {INPUT_DIR}", "main", "main")
         logger.info(f"Выходной каталог: {OUTPUT_DIR}", "main", "main")
         
+        # Логируем список файлов в каталогах
+        logger.info("", "main", "main")
+        logger.info("СПИСОК ФАЙЛОВ В КАТАЛОГАХ:", "main", "main")
+        logger.info("-" * 80, "main", "main")
+        
+        input_path = Path(INPUT_DIR)
+        if input_path.exists():
+            for group_dir in ["OD", "RA", "PS"]:
+                group_path = input_path / group_dir
+                if group_path.exists() and group_path.is_dir():
+                    files = sorted([f.name for f in group_path.iterdir() if f.is_file() and f.suffix in ['.xlsx', '.xls']])
+                    if files:
+                        logger.info(f"Каталог {group_dir}: найдено {len(files)} файл(ов)", "main", "main")
+                        for file_name in files:
+                            logger.info(f"  - {file_name}", "main", "main")
+                    else:
+                        logger.info(f"Каталог {group_dir}: файлы не найдены", "main", "main")
+                else:
+                    logger.info(f"Каталог {group_dir}: не существует", "main", "main")
+        else:
+            logger.warning(f"Входной каталог {INPUT_DIR} не существует", "main", "main")
+        
+        logger.info("-" * 80, "main", "main")
+        logger.info("", "main", "main")
+        
+        # Инициализируем менеджер конфигурации и логируем параметры
+        logger.info("ПАРАМЕТРЫ КОНФИГУРАЦИИ ГРУПП ФАЙЛОВ:", "main", "main")
+        logger.info("-" * 80, "main", "main")
+        
+        config_manager = ConfigManager()
+        
+        for group_name in ["OD", "RA", "PS"]:
+            if group_name not in config_manager.groups:
+                continue
+                
+            group_config = config_manager.get_group_config(group_name)
+            defaults = group_config.defaults
+            
+            logger.info(f"", "main", "main")
+            logger.info(f"ГРУППА: {group_name}", "main", "main")
+            logger.info(f"  Лист по умолчанию: {group_config.default_sheet}", "main", "main")
+            logger.info(f"  Количество файлов в конфигурации: {len(group_config.items)}", "main", "main")
+            
+            # Логируем список файлов
+            if group_config.items:
+                logger.info(f"  Список файлов:", "main", "main")
+                for item in group_config.items:
+                    if item.file_name:
+                        logger.info(f"    - {item.file_name} ({item.label})", "main", "main")
+                        if item.sheet:
+                            logger.info(f"      Лист: {item.sheet}", "main", "main")
+                    else:
+                        logger.info(f"    - Файл не используется ({item.label})", "main", "main")
+            
+            # Логируем колонки
+            logger.info(f"  Колонки для тестовых данных (columns_test):", "main", "main")
+            if defaults.columns_test:
+                for col in defaults.columns_test:
+                    logger.info(f"    - {col.get('source', '')} -> {col.get('alias', '')}", "main", "main")
+            else:
+                logger.info(f"    (не заданы)", "main", "main")
+            
+            logger.info(f"  Колонки для пром данных (columns_prom):", "main", "main")
+            if defaults.columns_prom:
+                for col in defaults.columns_prom:
+                    logger.info(f"    - {col.get('source', '')} -> {col.get('alias', '')}", "main", "main")
+            else:
+                logger.info(f"    (не заданы)", "main", "main")
+            
+            # Логируем имена колонок после маппинга
+            logger.info(f"  Имена колонок после маппинга:", "main", "main")
+            logger.info(f"    - tab_number_column: {defaults.tab_number_column}", "main", "main")
+            logger.info(f"    - tb_column: {defaults.tb_column}", "main", "main")
+            logger.info(f"    - gosb_column: {defaults.gosb_column}", "main", "main")
+            logger.info(f"    - fio_column: {defaults.fio_column}", "main", "main")
+            logger.info(f"    - indicator_column: {defaults.indicator_column}", "main", "main")
+            
+            # Логируем параметры нормализации
+            logger.info(f"  Параметры нормализации:", "main", "main")
+            logger.info(f"    - tab_number_length: {defaults.tab_number_length}", "main", "main")
+            logger.info(f"    - tab_number_fill_char: '{defaults.tab_number_fill_char}'", "main", "main")
+            logger.info(f"    - inn_length: {defaults.inn_length}", "main", "main")
+            logger.info(f"    - inn_fill_char: '{defaults.inn_fill_char}'", "main", "main")
+            
+            # Логируем фильтры (drop_rules)
+            logger.info(f"  Правила удаления строк (drop_rules):", "main", "main")
+            if defaults.drop_rules:
+                for rule in defaults.drop_rules:
+                    logger.info(f"    - {rule.alias}: удалять значения {rule.values} (remove_unconditionally={rule.remove_unconditionally}, check_by_inn={rule.check_by_inn}, check_by_tn={rule.check_by_tn})", "main", "main")
+            else:
+                logger.info(f"    (не заданы)", "main", "main")
+            
+            # Логируем фильтры (in_rules)
+            logger.info(f"  Правила включения строк (in_rules):", "main", "main")
+            if defaults.in_rules:
+                for rule in defaults.in_rules:
+                    logger.info(f"    - {rule.alias}: {rule.condition} {rule.values}", "main", "main")
+            else:
+                logger.info(f"    (не заданы)", "main", "main")
+            
+            # Логируем параметры расчета
+            logger.info(f"  Параметры расчета:", "main", "main")
+            logger.info(f"    - calculation_type: {defaults.calculation_type}", "main", "main")
+            logger.info(f"    - first_month_value: {defaults.first_month_value}", "main", "main")
+            logger.info(f"    - three_periods_first_months: {defaults.three_periods_first_months}", "main", "main")
+            logger.info(f"    - indicator_direction: {defaults.indicator_direction}", "main", "main")
+            logger.info(f"    - weight: {defaults.weight}", "main", "main")
+            
+            # Логируем параметры обработки файлов
+            logger.info(f"  Параметры обработки файлов:", "main", "main")
+            logger.info(f"    - header_row: {defaults.header_row}", "main", "main")
+            logger.info(f"    - skip_rows: {defaults.skip_rows}", "main", "main")
+            logger.info(f"    - skip_footer: {defaults.skip_footer}", "main", "main")
+            logger.info(f"    - sheet_name: {defaults.sheet_name}", "main", "main")
+            logger.info(f"    - sheet_index: {defaults.sheet_index}", "main", "main")
+        
+        logger.info("-" * 80, "main", "main")
+        logger.info("", "main", "main")
+        
         # Инициализируем процессор файлов
         processor = FileProcessor(input_dir=INPUT_DIR, logger_instance=logger)
         
@@ -6112,8 +6231,7 @@ def main():
         logger.info("Этап 5: Подготовка расчетных данных", "main", "main")
         calculated_df = processor.prepare_calculated_data(summary_df)
         
-        # Создаем менеджер конфигурации
-        config_manager = ConfigManager()
+        # Менеджер конфигурации уже создан выше для логирования параметров
         
         # Нормализуем показатели (вариант 3)
         logger.info("Этап 6: Нормализация показателей", "main", "main")
