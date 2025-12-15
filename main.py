@@ -1242,6 +1242,199 @@ class Logger:
 # МОДУЛЬ ОБРАБОТКИ ФАЙЛОВ
 # ============================================================================
 
+# ============================================================================
+# КЛАСС ДЛЯ СБОРА ДЕТАЛЬНОЙ СТАТИСТИКИ ПО ТАБЕЛЬНЫМ НОМЕРАМ
+# ============================================================================
+
+class DebugTabNumberTracker:
+    """Класс для сбора детальной статистики по табельным номерам из DEBUG_TAB_NUMBER."""
+    
+    def __init__(self, logger_instance: Optional[Logger] = None):
+        """
+        Инициализация трекера.
+        
+        Args:
+            logger_instance: Экземпляр логгера
+        """
+        self.logger = logger_instance
+        # Структура данных для каждого табельного номера:
+        # {
+        #   "tab_number": {
+        #     "source_files": {  # Данные из исходных файлов
+        #       "file_name": {
+        #         "group": str,
+        #         "month": int,
+        #         "clients": [  # Список клиентов (ИНН) с их данными
+        #           {
+        #             "ИНН": str,
+        #             "ТБ": str,
+        #             "ФИО": str,
+        #             "Показатель": float,
+        #             "Выбран": bool  # Был ли выбран этот вариант
+        #           }
+        #         ],
+        #         "tb_variants": {  # Варианты ТБ с суммами
+        #           "ТБ": float  # Сумма показателя для этого ТБ
+        #         },
+        #         "selected_tb": str,  # Выбранный ТБ
+        #         "selected_sum": float  # Сумма выбранного варианта
+        #       }
+        #     },
+        #     "raw_data": {  # Данные после схлопывания (RAW)
+        #       "ИНН": {
+        #         "ТБ": str,
+        #         "ФИО": str,
+        #         "sums_by_file": {  # Суммы по файлам
+        #           "file_name": float
+        #         }
+        #       }
+        #     },
+        #     "calculations": {  # Результаты расчетов
+        #       "month": {
+        #         "fact": float,
+        #         "growth_2m": float,
+        #         "growth_3m": float
+        #       }
+        #     },
+        #     "normalization": {  # Нормализованные значения
+        #       "month": {
+        #         "indicator": float
+        #       }
+        #     },
+        #     "scores": {  # Score по месяцам
+        #       "month": float
+        #     },
+        #     "best_month": str,  # Лучший месяц
+        #     "unique_inn_count": int  # Количество уникальных ИНН
+        #   }
+        # }
+        self.tab_data: Dict[str, Dict[str, Any]] = {}
+        
+        # Инициализируем структуру для каждого табельного номера из DEBUG_TAB_NUMBER
+        if DEBUG_TAB_NUMBER and len(DEBUG_TAB_NUMBER) > 0:
+            for tab_num in DEBUG_TAB_NUMBER:
+                self.tab_data[tab_num] = {
+                    "source_files": {},
+                    "raw_data": {},
+                    "calculations": {},
+                    "normalization": {},
+                    "scores": {},
+                    "best_month": None,
+                    "unique_inn_count": 0
+                }
+    
+    def add_source_file_data(self, tab_number: str, file_name: str, group: str, month: int,
+                             clients_data: List[Dict[str, Any]], tb_variants: Dict[str, float],
+                             selected_tb: str, selected_sum: float) -> None:
+        """
+        Добавляет данные из исходного файла для табельного номера.
+        
+        Args:
+            tab_number: Табельный номер
+            file_name: Имя файла
+            group: Группа (OD, RA, PS)
+            month: Номер месяца
+            clients_data: Список клиентов с их данными
+            tb_variants: Варианты ТБ с суммами
+            selected_tb: Выбранный ТБ
+            selected_sum: Сумма выбранного варианта
+        """
+        if tab_number not in self.tab_data:
+            return
+        
+        self.tab_data[tab_number]["source_files"][file_name] = {
+            "group": group,
+            "month": month,
+            "clients": clients_data,
+            "tb_variants": tb_variants,
+            "selected_tb": selected_tb,
+            "selected_sum": selected_sum
+        }
+    
+    def add_raw_data(self, tab_number: str, raw_data: Dict[str, Dict[str, Any]]) -> None:
+        """
+        Добавляет данные после схлопывания (RAW) для табельного номера.
+        
+        Args:
+            tab_number: Табельный номер
+            raw_data: Данные по ИНН после схлопывания
+        """
+        if tab_number not in self.tab_data:
+            return
+        
+        self.tab_data[tab_number]["raw_data"] = raw_data
+    
+    def add_calculations(self, tab_number: str, calculations: Dict[str, Dict[str, float]]) -> None:
+        """
+        Добавляет результаты расчетов для табельного номера.
+        
+        Args:
+            tab_number: Табельный номер
+            calculations: Результаты расчетов по месяцам
+        """
+        if tab_number not in self.tab_data:
+            return
+        
+        self.tab_data[tab_number]["calculations"] = calculations
+    
+    def add_normalization(self, tab_number: str, normalization: Dict[str, Dict[str, float]]) -> None:
+        """
+        Добавляет нормализованные значения для табельного номера.
+        
+        Args:
+            tab_number: Табельный номер
+            normalization: Нормализованные значения по месяцам
+        """
+        if tab_number not in self.tab_data:
+            return
+        
+        self.tab_data[tab_number]["normalization"] = normalization
+    
+    def add_scores(self, tab_number: str, scores: Dict[str, float], best_month: str) -> None:
+        """
+        Добавляет Score и лучший месяц для табельного номера.
+        
+        Args:
+            tab_number: Табельный номер
+            scores: Score по месяцам
+            best_month: Лучший месяц
+        """
+        if tab_number not in self.tab_data:
+            return
+        
+        self.tab_data[tab_number]["scores"] = scores
+        self.tab_data[tab_number]["best_month"] = best_month
+    
+    def set_unique_inn_count(self, tab_number: str, count: int) -> None:
+        """
+        Устанавливает количество уникальных ИНН для табельного номера.
+        
+        Args:
+            tab_number: Табельный номер
+            count: Количество уникальных ИНН
+        """
+        if tab_number not in self.tab_data:
+            return
+        
+        self.tab_data[tab_number]["unique_inn_count"] = count
+    
+    def get_tab_data(self, tab_number: str) -> Optional[Dict[str, Any]]:
+        """
+        Получает собранные данные для табельного номера.
+        
+        Args:
+            tab_number: Табельный номер
+            
+        Returns:
+            Dict с данными или None, если табельный номер не отслеживается
+        """
+        return self.tab_data.get(tab_number)
+    
+    def get_all_tab_numbers(self) -> List[str]:
+        """Возвращает список всех отслеживаемых табельных номеров."""
+        return list(self.tab_data.keys())
+
+
 class FileProcessor:
     """Класс для обработки Excel файлов."""
     
@@ -1274,6 +1467,10 @@ class FileProcessor:
         Инициализация процессора файлов.
         
         Args:
+            input_dir: Директория с входными файлами
+            logger_instance: Экземпляр логгера
+        
+        Args:
             input_dir: Путь к каталогу с входными данными
             logger_instance: Экземпляр логгера
         """
@@ -1282,6 +1479,9 @@ class FileProcessor:
         self.processed_files: Dict[str, Dict[str, pd.DataFrame]] = {}
         self.unique_tab_numbers: Dict[str, Dict[str, Any]] = {}
         self.logger = logger_instance
+        
+        # Инициализируем трекер для детальной статистики по табельным номерам
+        self.debug_tracker = DebugTabNumberTracker(logger_instance=logger_instance)
         
         # ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ: Информируем о включенном режиме детального логирования
         if DEBUG_TAB_NUMBER and len(DEBUG_TAB_NUMBER) > 0:
@@ -2279,10 +2479,53 @@ class FileProcessor:
                         
                         self.statistics["tab_selection"][group][file_name]["selected_count"] = len(max_rows)
                     
-                    # Логируем выбор для отладки
+                    # Собираем данные для трекера детальной статистики
                     for _, max_row in max_rows.iterrows():
                         tab_num = max_row[tab_col]
                         tab_data = grouped[grouped[tab_col] == tab_num]
+                        
+                        # Собираем данные о клиентах (ИНН) для этого табельного номера из исходного DataFrame
+                        clients_data = []
+                        if "client_id" in df_normalized.columns:
+                            tab_rows = df_normalized[df_normalized[tab_col] == tab_num]
+                            for _, row in tab_rows.iterrows():
+                                client_inn = str(row.get("client_id", ""))
+                                client_tb = str(row.get(tb_col, ""))
+                                client_fio = str(row.get(fio_col, ""))
+                                client_indicator = float(row.get(indicator_col, 0))
+                                selected_tb_value = max_row.get(tb_col, '')
+                                is_selected = (client_tb == selected_tb_value)
+                                
+                                clients_data.append({
+                                    "ИНН": client_inn,
+                                    "ТБ": client_tb,
+                                    "ФИО": client_fio,
+                                    "Показатель": client_indicator,
+                                    "Выбран": is_selected
+                                })
+                        
+                        # Собираем варианты ТБ с суммами
+                        tb_variants = {}
+                        for _, variant_row in tab_data.iterrows():
+                            tb_value = variant_row.get(tb_col, '')
+                            sum_value = float(variant_row.get(indicator_col, 0))
+                            tb_variants[tb_value] = sum_value
+                        
+                        selected_tb = max_row.get(tb_col, '')
+                        selected_sum = float(max_row.get(indicator_col, 0))
+                        
+                        # Добавляем данные в трекер
+                        self.debug_tracker.add_source_file_data(
+                            tab_number=tab_num,
+                            file_name=file_name,
+                            group=group,
+                            month=month,
+                            clients_data=clients_data,
+                            tb_variants=tb_variants,
+                            selected_tb=selected_tb,
+                            selected_sum=selected_sum
+                        )
+                        
                         if len(tab_data) > 1:
                             # Формируем детальную информацию о вариантах
                             # ВАЖНО: Сумма не маскируется и форматируется с разделителем разрядов
@@ -2293,8 +2536,6 @@ class FileProcessor:
                                 sum_formatted = f"{sum_value:,.2f}".replace(",", " ").replace(".", ",")
                                 variants_list.append(f"ТБ='{variant_row.get(tb_col, '')}' (сумма={sum_formatted})")
                             
-                            selected_tb = max_row.get(tb_col, '')
-                            selected_sum = max_row.get(indicator_col, 0)
                             # Форматируем выбранную сумму с разделителем разрядов
                             selected_sum_formatted = f"{selected_sum:,.2f}".replace(",", " ").replace(".", ",")
                             
@@ -2318,7 +2559,6 @@ class FileProcessor:
                                     "Показатель": sum_formatted  # Форматированная сумма с разделителем
                                 })
                             
-                            selected_sum = max_row.get(indicator_col, 0)
                             selected_sum_formatted = f"{selected_sum:,.2f}".replace(",", " ").replace(".", ",")
                             
                             self.logger.debug_tab(
@@ -2532,16 +2772,35 @@ class FileProcessor:
         grouped = df.groupby([tab_col, fio_col, tb_col, "client_id"], as_index=False)[indicator_col].sum()
         
         # ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ: Логируем данные для указанных табельных в RAW
+        # И собираем данные для трекера
         if DEBUG_TAB_NUMBER and len(DEBUG_TAB_NUMBER) > 0 and tab_col in grouped.columns:
             debug_mask = self._create_debug_tab_mask(grouped, tab_col)
             debug_rows = grouped[debug_mask]
             if len(debug_rows) > 0:
                 for _, row in debug_rows.iterrows():
+                    tab_num = str(row.get(tab_col, ''))
+                    # Собираем данные для трекера
+                    if tab_num in self.debug_tracker.tab_data:
+                        if "raw_data" not in self.debug_tracker.tab_data[tab_num]:
+                            self.debug_tracker.tab_data[tab_num]["raw_data"] = {}
+                        
+                        inn = str(row.get('client_id', ''))
+                        if inn not in self.debug_tracker.tab_data[tab_num]["raw_data"]:
+                            self.debug_tracker.tab_data[tab_num]["raw_data"][inn] = {
+                                "ТБ": str(row.get(tb_col, '')),
+                                "ФИО": str(row.get(fio_col, '')),
+                                "sums_by_file": {}
+                            }
+                        
+                        # Добавляем сумму для этого файла
+                        file_key = f"{group} (M-{month})"
+                        self.debug_tracker.tab_data[tab_num]["raw_data"][inn]["sums_by_file"][file_key] = float(row.get(indicator_col, 0))
+                    
                     self.logger.debug_tab(
                         f"Подготовка RAW данных для файла {file_name} (группа {group}, месяц M-{month}): "
                         f"ТБ='{row.get(tb_col, '')}', ФИО='{row.get(fio_col, '')}', "
                         f"ИНН={row.get('client_id', '')}, Показатель={row.get(indicator_col, 0):.2f}",
-                        tab_number=row.get(tab_col),
+                        tab_number=tab_num,
                         class_name="FileProcessor",
                         func_name="_process_file_for_raw"
                     )
@@ -3771,6 +4030,12 @@ class FileProcessor:
                 lambda x: unique_inn_count.get(str(x), 0)
             )
             
+            # Собираем данные для трекера
+            for tab_num in self.debug_tracker.get_all_tab_numbers():
+                tab_num_str = str(tab_num).strip().lstrip('0')
+                count = unique_inn_count.get(tab_num_str, 0)
+                self.debug_tracker.set_unique_inn_count(tab_num_str, count)
+            
             # Логируем статистику для диагностики
             non_zero_count = (final_df["Количество уникальных ИНН"] > 0).sum()
             total_count = len(final_df)
@@ -4008,6 +4273,63 @@ class FileProcessor:
         # Добавляем колонку "Лучший месяц" в places_df и final_df
         places_df["Лучший месяц"] = best_month_series
         final_df["Лучший месяц"] = best_month_series
+        
+        # Собираем данные для трекера: Score и лучший месяц
+        if "Табельный" in places_df.columns:
+            for tab_num in self.debug_tracker.get_all_tab_numbers():
+                tab_num_str = str(tab_num).strip().lstrip('0')
+                tab_mask = places_df["Табельный"].astype(str).str.strip().str.lstrip('0') == tab_num_str
+                if tab_mask.any():
+                    tab_idx = places_df[tab_mask].index[0]
+                    
+                    # Собираем Score по месяцам
+                    scores_dict = {}
+                    for month in sorted(month_data.keys()):
+                        score_col = score_cols.get(month)
+                        if score_col and score_col in places_df.columns:
+                            score_val = places_df.loc[tab_idx, score_col] if tab_idx in places_df.index else 0
+                            scores_dict[str(month)] = float(score_val) if pd.notna(score_val) else 0
+                    
+                    best_month_val = best_month_series.loc[tab_idx] if tab_idx in best_month_series.index else ""
+                    self.debug_tracker.add_scores(tab_num_str, scores_dict, str(best_month_val))
+                    
+                    # Собираем данные расчетов
+                    if tab_idx in calculated_df.index:
+                        calc_dict = {}
+                        for month in sorted(month_data.keys()):
+                            od_col = month_data[month].get("OD")
+                            ra_col = month_data[month].get("RA")
+                            ps_col = month_data[month].get("PS")
+                            
+                            fact = 0
+                            if od_col and od_col in calculated_df.columns:
+                                fact += float(calculated_df.loc[tab_idx, od_col]) if pd.notna(calculated_df.loc[tab_idx, od_col]) else 0
+                            if ra_col and ra_col in calculated_df.columns:
+                                fact += float(calculated_df.loc[tab_idx, ra_col]) if pd.notna(calculated_df.loc[tab_idx, ra_col]) else 0
+                            if ps_col and ps_col in calculated_df.columns:
+                                fact += float(calculated_df.loc[tab_idx, ps_col]) if pd.notna(calculated_df.loc[tab_idx, ps_col]) else 0
+                            
+                            calc_dict[str(month)] = {
+                                "fact": fact,
+                                "growth_2m": 0,  # Упрощенно, можно расширить
+                                "growth_3m": 0  # Упрощенно, можно расширить
+                            }
+                        self.debug_tracker.add_calculations(tab_num_str, calc_dict)
+                    
+                    # Собираем данные нормализации
+                    if tab_idx in normalized_df.index:
+                        norm_dict = {}
+                        for month in sorted(month_data.keys()):
+                            od_norm_col = f"OD (M-{month})_norm" if f"OD (M-{month})_norm" in normalized_df.columns else None
+                            ra_norm_col = f"RA (M-{month})_norm" if f"RA (M-{month})_norm" in normalized_df.columns else None
+                            ps_norm_col = f"PS (M-{month})_norm" if f"PS (M-{month})_norm" in normalized_df.columns else None
+                            
+                            norm_dict[str(month)] = {
+                                "OD": float(normalized_df.loc[tab_idx, od_norm_col]) if od_norm_col and pd.notna(normalized_df.loc[tab_idx, od_norm_col]) else 0,
+                                "RA": float(normalized_df.loc[tab_idx, ra_norm_col]) if ra_norm_col and pd.notna(normalized_df.loc[tab_idx, ra_norm_col]) else 0,
+                                "PS": float(normalized_df.loc[tab_idx, ps_norm_col]) if ps_norm_col and pd.notna(normalized_df.loc[tab_idx, ps_norm_col]) else 0
+                            }
+                        self.debug_tracker.add_normalization(tab_num_str, norm_dict)
         
         self.logger.info(f"Расчет лучшего месяца завершен: определен для {len(best_month_series[best_month_series != ''])} КМ", "FileProcessor", "_calculate_best_month_variant3")
         
@@ -4350,7 +4672,8 @@ class ExcelFormatter:
     
     def create_formatted_excel(self, raw_df: pd.DataFrame, summary_df: pd.DataFrame, calculated_df: pd.DataFrame, 
                               normalized_df: pd.DataFrame, places_df: pd.DataFrame, final_df: pd.DataFrame,
-                              output_path: str, statistics_df: Optional[pd.DataFrame] = None) -> None:
+                              output_path: str, statistics_df: Optional[pd.DataFrame] = None, 
+                              debug_tracker: Optional[DebugTabNumberTracker] = None) -> None:
         """
         Создает новый Excel файл с форматированием используя только базовые модули Anaconda.
         Используется только openpyxl
@@ -4521,9 +4844,207 @@ class ExcelFormatter:
         
         return chunks
     
+    def _create_debug_tab_sheets(self, debug_tracker: DebugTabNumberTracker, writer: pd.ExcelWriter) -> None:
+        """
+        Создает детальные листы Excel для табельных номеров из DEBUG_TAB_NUMBER.
+        
+        Args:
+            debug_tracker: Трекер с собранными данными
+            writer: ExcelWriter для записи листов
+        """
+        if not debug_tracker or len(debug_tracker.get_all_tab_numbers()) == 0:
+            return
+        
+        self.logger.info(f"Создание детальных листов для {len(debug_tracker.get_all_tab_numbers())} табельных номеров", "ExcelFormatter", "_create_debug_tab_sheets")
+        
+        for tab_number in debug_tracker.get_all_tab_numbers():
+            tab_data = debug_tracker.get_tab_data(tab_number)
+            if not tab_data:
+                continue
+            
+            # Создаем лист для каждого табельного номера
+            sheet_name = f"Детально_{tab_number}"
+            # Ограничиваем длину имени листа (Excel ограничение - 31 символ)
+            if len(sheet_name) > 31:
+                sheet_name = f"Дет_{tab_number[-8:]}"
+            
+            # Создаем список таблиц для листа
+            tables_data = []
+            
+            # Таблица 1: Данные из исходных файлов
+            if "source_files" in tab_data and tab_data["source_files"]:
+                source_rows = []
+                source_rows.append(["Файл", "Группа", "Месяц", "ТБ", "ФИО", "ИНН", "Показатель", "Выбран"])
+                
+                for file_name, file_data in sorted(tab_data["source_files"].items()):
+                    group = file_data.get("group", "")
+                    month = file_data.get("month", 0)
+                    selected_tb = file_data.get("selected_tb", "")
+                    selected_sum = file_data.get("selected_sum", 0)
+                    
+                    # Добавляем строку с выбранным вариантом
+                    source_rows.append([
+                        file_name,
+                        group,
+                        f"M-{month}",
+                        selected_tb,
+                        "",  # ФИО будет в отдельных строках
+                        "",  # ИНН будет в отдельных строках
+                        selected_sum,
+                        "Да"
+                    ])
+                    
+                    # Добавляем строки с клиентами
+                    clients = file_data.get("clients", [])
+                    for client in clients:
+                        source_rows.append([
+                            "",  # Файл уже указан выше
+                            "",  # Группа уже указана выше
+                            "",  # Месяц уже указан выше
+                            client.get("ТБ", ""),
+                            client.get("ФИО", ""),
+                            client.get("ИНН", ""),
+                            client.get("Показатель", 0),
+                            "Да" if client.get("Выбран", False) else "Нет"
+                        ])
+                    
+                    # Добавляем строку с вариантами ТБ
+                    tb_variants = file_data.get("tb_variants", {})
+                    if len(tb_variants) > 1:
+                        source_rows.append(["", "", "", "Варианты ТБ:", "", "", "", ""])
+                        for tb, sum_val in sorted(tb_variants.items(), key=lambda x: x[1], reverse=True):
+                            source_rows.append([
+                                "", "", "",
+                                tb,
+                                "", "", "",
+                                f"{sum_val:,.2f}".replace(",", " ").replace(".", ",")
+                            ])
+                    
+                    # Пустая строка между файлами
+                    source_rows.append([""] * 8)
+                
+                if len(source_rows) > 1:  # Если есть данные кроме заголовка
+                    source_df = pd.DataFrame(source_rows[1:], columns=source_rows[0])
+                    tables_data.append(("Исходные файлы", source_df))
+            
+            # Таблица 2: Данные после схлопывания (RAW)
+            if "raw_data" in tab_data and tab_data["raw_data"]:
+                raw_rows = []
+                raw_rows.append(["ИНН", "ТБ", "ФИО"] + sorted(set(
+                    file_key
+                    for inn_data in tab_data["raw_data"].values()
+                    for file_key in inn_data.get("sums_by_file", {}).keys()
+                )))
+                
+                for inn, inn_data in sorted(tab_data["raw_data"].items()):
+                    row = [
+                        inn,
+                        inn_data.get("ТБ", ""),
+                        inn_data.get("ФИО", "")
+                    ]
+                    sums_by_file = inn_data.get("sums_by_file", {})
+                    for file_key in raw_rows[0][3:]:  # Все колонки кроме первых трех
+                        row.append(sums_by_file.get(file_key, 0))
+                    raw_rows.append(row)
+                
+                if len(raw_rows) > 1:
+                    raw_df_sheet = pd.DataFrame(raw_rows[1:], columns=raw_rows[0])
+                    tables_data.append(("Данные после схлопывания (RAW)", raw_df_sheet))
+            
+            # Таблица 3: Результаты расчетов
+            if "calculations" in tab_data and tab_data["calculations"]:
+                calc_rows = []
+                calc_rows.append(["Месяц", "Факт", "Прирост 2м", "Прирост 3м"])
+                
+                for month, calc_data in sorted(tab_data["calculations"].items()):
+                    calc_rows.append([
+                        f"M-{month}",
+                        calc_data.get("fact", 0),
+                        calc_data.get("growth_2m", 0),
+                        calc_data.get("growth_3m", 0)
+                    ])
+                
+                if len(calc_rows) > 1:
+                    calc_df = pd.DataFrame(calc_rows[1:], columns=calc_rows[0])
+                    tables_data.append(("Результаты расчетов", calc_df))
+            
+            # Таблица 4: Нормализация
+            if "normalization" in tab_data and tab_data["normalization"]:
+                norm_rows = []
+                norm_rows.append(["Месяц", "OD_norm", "RA_norm", "PS_norm"])
+                
+                for month, norm_data in sorted(tab_data["normalization"].items()):
+                    norm_rows.append([
+                        f"M-{month}",
+                        norm_data.get("OD", 0),
+                        norm_data.get("RA", 0),
+                        norm_data.get("PS", 0)
+                    ])
+                
+                if len(norm_rows) > 1:
+                    norm_df = pd.DataFrame(norm_rows[1:], columns=norm_rows[0])
+                    tables_data.append(("Нормализация", norm_df))
+            
+            # Таблица 5: Score и лучший месяц
+            if "scores" in tab_data and tab_data["scores"]:
+                score_rows = []
+                score_rows.append(["Месяц", "Score", "Лучший месяц"])
+                
+                best_month = tab_data.get("best_month", "")
+                for month, score_val in sorted(tab_data["scores"].items()):
+                    score_rows.append([
+                        f"M-{month}",
+                        score_val,
+                        "Да" if str(month) in best_month.split(", ") else "Нет"
+                    ])
+                
+                if len(score_rows) > 1:
+                    score_df = pd.DataFrame(score_rows[1:], columns=score_rows[0])
+                    tables_data.append(("Score и выбор месяца", score_df))
+            
+            # Таблица 6: Итоговая статистика
+            summary_rows = []
+            summary_rows.append(["Параметр", "Значение"])
+            summary_rows.append(["Табельный номер", tab_number])
+            summary_rows.append(["Количество уникальных ИНН", tab_data.get("unique_inn_count", 0)])
+            summary_rows.append(["Лучший месяц", tab_data.get("best_month", "")])
+            summary_rows.append(["Количество исходных файлов", len(tab_data.get("source_files", {}))])
+            summary_rows.append(["Количество клиентов в RAW", len(tab_data.get("raw_data", {}))])
+            
+            summary_df = pd.DataFrame(summary_rows[1:], columns=summary_rows[0])
+            tables_data.append(("Итоговая статистика", summary_df))
+            
+            # Объединяем все таблицы в один DataFrame для листа
+            # Создаем вертикальное объединение таблиц с заголовками
+            all_rows = []
+            for table_name, table_df in tables_data:
+                # Добавляем заголовок таблицы
+                all_rows.append([table_name] + [""] * (len(table_df.columns) - 1))
+                # Добавляем заголовки колонок
+                all_rows.append(list(table_df.columns))
+                # Добавляем данные
+                for _, row in table_df.iterrows():
+                    all_rows.append(list(row))
+                # Пустая строка между таблицами
+                all_rows.append([""] * len(table_df.columns))
+            
+            if all_rows:
+                # Создаем DataFrame с максимальным количеством колонок
+                max_cols = max(len(row) for row in all_rows) if all_rows else 1
+                for row in all_rows:
+                    while len(row) < max_cols:
+                        row.append("")
+                
+                debug_df = pd.DataFrame(all_rows)
+                debug_df.to_excel(writer, sheet_name=sheet_name, index=False, header=False)
+                
+                # Форматируем детальный лист после сохранения
+                # Это будет сделано в _create_with_openpyxl после загрузки файла
+    
     def _create_with_openpyxl(self, raw_df: pd.DataFrame, summary_df: pd.DataFrame, calculated_df: pd.DataFrame,
                              normalized_df: pd.DataFrame, places_df: pd.DataFrame, final_df: pd.DataFrame,
-                             output_path: str, statistics_df: Optional[pd.DataFrame] = None) -> None:
+                             output_path: str, statistics_df: Optional[pd.DataFrame] = None,
+                             debug_tracker: Optional[DebugTabNumberTracker] = None) -> None:
         """
         Создает Excel файл с форматированием используя openpyxl.
         
@@ -4617,6 +5138,13 @@ class ExcelFormatter:
                 if statistics_df is not None:
                     other_sheets.append(("Статистика", statistics_df))
                 
+                # Создаем детальные листы для табельных номеров из DEBUG_TAB_NUMBER
+                if debug_tracker and len(debug_tracker.get_all_tab_numbers()) > 0:
+                    try:
+                        self._create_debug_tab_sheets(debug_tracker, writer)
+                    except Exception as e:
+                        self.logger.warning(f"Ошибка при создании детальных листов: {str(e)}", "ExcelFormatter", "_create_with_openpyxl")
+                
                 for sheet_idx, (sheet_name, df) in enumerate(other_sheets, 1):
                     current_time = time_func()
                     if current_time - last_log_time >= LOG_INTERVAL:
@@ -4669,6 +5197,16 @@ class ExcelFormatter:
         if statistics_df is not None:
             sheet_data["Статистика"] = statistics_df
         
+        # Добавляем детальные листы для форматирования (если есть)
+        debug_tab_sheets = []
+        if debug_tracker and len(debug_tracker.get_all_tab_numbers()) > 0:
+            for tab_number in debug_tracker.get_all_tab_numbers():
+                sheet_name = f"Детально_{tab_number}"
+                if len(sheet_name) > 31:
+                    sheet_name = f"Дет_{tab_number[-8:]}"
+                if sheet_name in wb.sheetnames:
+                    debug_tab_sheets.append(sheet_name)
+        
         total_sheets = len(sheet_data)
         from time import time
         format_start_time = time()
@@ -4707,6 +5245,16 @@ class ExcelFormatter:
                 sheet_elapsed = current_time - last_progress_time
                 self.logger.info(f"Завершено форматирование листа '{sheet_name}' ({sheet_idx}/{total_sheets}) за {sheet_elapsed:.0f} сек (всего прошло {elapsed:.0f} сек)")
                 last_progress_time = current_time
+            
+            # Форматируем детальные листы
+            for debug_sheet_name in debug_tab_sheets:
+                if debug_sheet_name in wb.sheetnames:
+                    try:
+                        ws = wb[debug_sheet_name]
+                        self._format_debug_tab_sheet(ws, debug_sheet_name)
+                    except KeyboardInterrupt:
+                        self.logger.warning(f"Прерывание при форматировании детального листа '{debug_sheet_name}'", "ExcelFormatter", "_create_with_openpyxl")
+                        raise
             
             # Сохраняем файл
             format_elapsed = time() - format_start_time
@@ -4893,6 +5441,92 @@ class ExcelFormatter:
         # Включаем автофильтр
         ws.auto_filter.ref = ws.dimensions
     
+    def _format_debug_tab_sheet(self, ws, sheet_name: str) -> None:
+        """
+        Форматирует детальный лист для табельного номера.
+        
+        Args:
+            ws: Рабочий лист openpyxl
+            sheet_name: Имя листа
+        """
+        # Фиксируем первую строку
+        ws.freeze_panes = "A2"
+        
+        # Форматируем заголовки таблиц (строки с названиями таблиц)
+        section_fill = PatternFill(start_color="E6E6FA", end_color="E6E6FA", fill_type="solid")
+        section_font = Font(bold=True, size=14, color="000080")
+        section_alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+        
+        # Форматируем заголовки колонок (вторая строка после названия таблицы)
+        header_fill = PatternFill(start_color="D3D3D3", end_color="D3D3D3", fill_type="solid")
+        header_font = Font(bold=True, size=11)
+        header_alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        
+        # Обычный текст
+        text_alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+        number_alignment = Alignment(horizontal="right", vertical="center")
+        
+        current_row = 1
+        while current_row <= ws.max_row:
+            cell_value = ws.cell(row=current_row, column=1).value
+            
+            # Если это заголовок таблицы (первая колонка заполнена, остальные пустые или почти пустые)
+            if cell_value and isinstance(cell_value, str) and len(cell_value) > 0:
+                # Проверяем, является ли это заголовком таблицы
+                is_table_header = True
+                for col in range(2, min(10, ws.max_column + 1)):
+                    other_cell = ws.cell(row=current_row, column=col).value
+                    if other_cell and str(other_cell).strip():
+                        is_table_header = False
+                        break
+                
+                if is_table_header:
+                    # Форматируем заголовок таблицы
+                    for col in range(1, ws.max_column + 1):
+                        cell = ws.cell(row=current_row, column=col)
+                        cell.font = section_font
+                        cell.fill = section_fill
+                        cell.alignment = section_alignment
+                    
+                    # Следующая строка - заголовки колонок
+                    if current_row + 1 <= ws.max_row:
+                        for col in range(1, ws.max_column + 1):
+                            cell = ws.cell(row=current_row + 1, column=col)
+                            if cell.value:
+                                cell.font = header_font
+                                cell.fill = header_fill
+                                cell.alignment = header_alignment
+                        current_row += 2
+                        continue
+            
+            # Форматируем обычные строки
+            for col in range(1, ws.max_column + 1):
+                cell = ws.cell(row=current_row, column=col)
+                if cell.value is None:
+                    continue
+                
+                # Проверяем, является ли значение числом
+                try:
+                    num_value = float(cell.value)
+                    cell.alignment = number_alignment
+                    cell.number_format = "#,##0.00"
+                except (ValueError, TypeError):
+                    cell.alignment = text_alignment
+            
+            current_row += 1
+        
+        # Настраиваем ширину колонок
+        for col_idx, column in enumerate(ws.iter_cols(min_row=1, max_row=min(100, ws.max_row)), start=1):
+            col_letter = get_column_letter(col_idx)
+            max_length = 0
+            for cell in column:
+                if cell.value:
+                    max_length = max(max_length, len(str(cell.value)))
+            width = max(15, min(max_length + 2, 100))
+            ws.column_dimensions[col_letter].width = width
+        
+        self.logger.debug(f"Детальный лист '{sheet_name}' отформатирован", "ExcelFormatter", "_format_debug_tab_sheet")
+    
     def _format_statistics_sheet_openpyxl(self, ws, df: pd.DataFrame) -> None:
         """
         Форматирует лист статистики используя openpyxl.
@@ -5044,7 +5678,7 @@ def main():
         # Сохраняем данные в Excel с форматированием (6 основных листов + статистика, если включена)
         logger.info(f"Этап 9: Сохранение результата в {output_file}", "main", "main")
         try:
-            formatter.create_formatted_excel(raw_df, summary_df, calculated_df, normalized_df, places_df, final_df, str(output_file), statistics_df)
+            formatter.create_formatted_excel(raw_df, summary_df, calculated_df, normalized_df, places_df, final_df, str(output_file), statistics_df, processor.debug_tracker)
         except KeyboardInterrupt:
             # Прерывание при сохранении/форматировании Excel - пробрасываем дальше
             raise
