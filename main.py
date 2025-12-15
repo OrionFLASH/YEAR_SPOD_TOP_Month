@@ -67,6 +67,15 @@ DEBUG_TAB_NUMBER: Optional[List[str]] = None  # Список табельных 
 DATA_MODE: str = "TEST"  # "TEST" - тестовые данные, "PROM" - пром данные
 # Определяет, какие columns использовать из конфигурации (columns_test или columns_prom)
 
+# Триггер для формирования RAW листов
+ENABLE_RAW_SHEETS: bool = False  # True - формировать RAW листы, False - не формировать (по умолчанию выключено)
+
+# Триггер для форматирования листов
+# "full" - полное форматирование (как сейчас, по умолчанию)
+# "off" - форматирование выключено (листы формируются, но не переформатируются, кроме ТН и ИНН - их форматы всегда работают)
+# "simple" - упрощенное форматирование (только ТН, ИНН, ФИО, ТБ, ГОСБ и заголовок, не форматируем данные показателей и расчетов)
+FORMATTING_MODE: str = "full"  # "full", "off", "simple"
+
 
 # ============================================================================
 # КОНФИГУРАЦИЯ МАППИНГА ТЕРРИТОРИАЛЬНЫХ БАНКОВ (ТБ)
@@ -5059,9 +5068,15 @@ class ExcelFormatter:
             statistics_df: DataFrame со статистикой (опционально)
         """
         self.logger.info("Использование openpyxl для форматирования")
+        self.logger.info(f"Режим форматирования: {FORMATTING_MODE} (full=полное, off=выключено, simple=упрощенное)", "ExcelFormatter", "_create_with_openpyxl")
         
-        # Разбиваем raw_df на чанки (если больше 900 000 строк)
-        raw_chunks = self._split_raw_df(raw_df, chunk_size=900_000)
+        # Разбиваем raw_df на чанки (если больше 900 000 строк) только если RAW листы включены
+        if ENABLE_RAW_SHEETS:
+            raw_chunks = self._split_raw_df(raw_df, chunk_size=900_000)
+            self.logger.info(f"RAW листы включены: будет создано {len(raw_chunks)} листа(ов) RAW", "ExcelFormatter", "_create_with_openpyxl")
+        else:
+            raw_chunks = []
+            self.logger.info("RAW листы отключены (ENABLE_RAW_SHEETS=False), они не будут созданы", "ExcelFormatter", "_create_with_openpyxl")
         
         # Сначала сохраняем DataFrame в Excel через pandas
         from time import time as time_func
@@ -5072,7 +5087,7 @@ class ExcelFormatter:
         self.logger.info("Сохранение данных в Excel...")
         try:
             with pd.ExcelWriter(output_path, engine='openpyxl') as writer:
-                # Сохраняем все чанки RAW
+                # Сохраняем все чанки RAW (только если включены)
                 total_raw_chunks = len(raw_chunks)
                 for chunk_idx, (sheet_name, chunk_df) in enumerate(raw_chunks, 1):
                     if len(chunk_df) > 0:
@@ -5180,10 +5195,11 @@ class ExcelFormatter:
             raise
         
         # Форматируем все листы
-        # Собираем все листы RAW для форматирования
+        # Собираем все листы RAW для форматирования (только если включены)
         sheet_data = {}
-        for sheet_name, chunk_df in raw_chunks:
-            sheet_data[sheet_name] = chunk_df
+        if ENABLE_RAW_SHEETS:
+            for sheet_name, chunk_df in raw_chunks:
+                sheet_data[sheet_name] = chunk_df
         
         # Добавляем остальные листы
         sheet_data.update({
@@ -5227,7 +5243,10 @@ class ExcelFormatter:
                 
                 try:
                     ws = wb[sheet_name]
-                    if sheet_name == "Статистика":
+                    if FORMATTING_MODE == "off":
+                        # Форматирование выключено - форматируем только ТН и ИНН
+                        self._format_sheet_minimal(ws, df, sheet_name)
+                    elif sheet_name == "Статистика":
                         # Для листа статистики используем специальное форматирование
                         self._format_statistics_sheet_openpyxl(ws, df)
                     elif sheet_name.startswith("RAW"):
@@ -5289,7 +5308,8 @@ class ExcelFormatter:
         total_cols = len(df.columns)
         
         # Логируем начало форматирования листа
-        self.logger.info(f"Форматирование '{sheet_name}': {total_rows} строк, {total_cols} колонок")
+        mode_desc = {"full": "полное", "off": "выключено (только ТН и ИНН)", "simple": "упрощенное (ТН, ИНН, ФИО, ТБ, ГОСБ)"}.get(FORMATTING_MODE, FORMATTING_MODE)
+        self.logger.info(f"Форматирование '{sheet_name}': {total_rows} строк, {total_cols} колонок (режим: {mode_desc})")
         
         # Фиксируем первую строку и 4 колонку (после ФИО)
         ws.freeze_panes = "E2"
@@ -5340,6 +5360,7 @@ class ExcelFormatter:
         # ОПТИМИЗАЦИЯ: Настраиваем выравнивание и форматирование для всех ячеек (батчами)
         # Определяем базовые колонки (текстовые)
         base_columns = ["Табельный", "ТБ", "ФИО"]
+        simple_format_columns = ["Табельный", "ТБ", "ФИО", "ИНН", "ГОСБ"]  # Колонки для упрощенного форматирования
         
         # Формат для чисел: разделитель разрядов и два знака после запятой
         number_format = "#,##0.00"
@@ -5358,6 +5379,8 @@ class ExcelFormatter:
             col_name = ws.cell(row=1, column=col_idx).value
             if col_name == "Табельный":
                 col_types[col_idx] = "tab"
+            elif col_name == "ИНН":
+                col_types[col_idx] = "inn"
             elif col_name in base_columns:
                 col_types[col_idx] = "text"
             elif col_name == "Количество уникальных ИНН":
@@ -5400,11 +5423,31 @@ class ExcelFormatter:
                         if col_idx not in col_types:
                             continue
                         
-                        col_type = col_types[col_idx]
+                        col_type = col_types.get(col_idx, "number")
+                        col_name = ws.cell(row=1, column=col_idx).value
                         
+                        # Определяем, нужно ли форматировать эту колонку в зависимости от режима
+                        should_format = True
+                        if FORMATTING_MODE == "simple":
+                            # В упрощенном режиме форматируем только ТН, ИНН, ФИО, ТБ, ГОСБ
+                            should_format = col_name in simple_format_columns
+                        elif FORMATTING_MODE == "off":
+                            # В режиме выключено форматируем только ТН и ИНН
+                            should_format = col_name in ["Табельный", "ИНН"]
+                        
+                        # ТН и ИНН всегда форматируются (независимо от режима)
                         if col_type == "tab":
                             cell.number_format = text_format
                             cell.alignment = align_left
+                        elif col_type == "inn":
+                            cell.number_format = text_format
+                            cell.alignment = align_left
+                        elif FORMATTING_MODE == "off":
+                            # В режиме выключено не форматируем остальные колонки
+                            continue
+                        elif not should_format:
+                            # Не форматируем эту колонку (оставляем как есть)
+                            continue
                         elif col_type == "text":
                             cell.alignment = align_left
                         elif col_type == "score" or col_type == "norm":
@@ -5526,6 +5569,58 @@ class ExcelFormatter:
             ws.column_dimensions[col_letter].width = width
         
         self.logger.debug(f"Детальный лист '{sheet_name}' отформатирован", "ExcelFormatter", "_format_debug_tab_sheet")
+    
+    def _format_sheet_minimal(self, ws, df: pd.DataFrame, sheet_name: str) -> None:
+        """
+        Минимальное форматирование листа: только ТН и ИНН (используется при FORMATTING_MODE="off").
+        
+        Args:
+            ws: Рабочий лист openpyxl
+            df: DataFrame с данными
+            sheet_name: Имя листа (для логирования)
+        """
+        # Фиксируем первую строку и 4 колонку (после ФИО)
+        ws.freeze_panes = "E2"
+        
+        # Форматируем заголовки (первая строка)
+        header_fill = PatternFill(start_color="D3D3D3", end_color="D3D3D3", fill_type="solid")
+        header_font = Font(bold=True, size=12)
+        header_alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        
+        for cell in ws[1]:
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = header_alignment
+        
+        # Настраиваем ширину колонок
+        for col_idx, column in enumerate(ws.iter_cols(min_row=1, max_row=1), start=1):
+            col_letter = get_column_letter(col_idx)
+            col_name = ws.cell(row=1, column=col_idx).value
+            
+            # Вычисляем оптимальную ширину
+            max_length = len(str(col_name)) if col_name else 0
+            for row in ws.iter_rows(min_row=2, max_row=min(102, ws.max_row), min_col=col_idx, max_col=col_idx):
+                for cell in row:
+                    if cell.value:
+                        max_length = max(max_length, len(str(cell.value)))
+            
+            width = max(self.min_width, min(max_length + 2, self.max_width))
+            ws.column_dimensions[col_letter].width = width
+        
+        # Форматируем только ТН и ИНН
+        text_format = "@"
+        align_left = Alignment(horizontal="left", vertical="center", wrap_text=True)
+        
+        for col_idx in range(1, len(df.columns) + 1):
+            col_name = ws.cell(row=1, column=col_idx).value
+            if col_name in ["Табельный", "ИНН"]:
+                for row_idx in range(2, ws.max_row + 1):
+                    cell = ws.cell(row=row_idx, column=col_idx)
+                    if cell.value is not None:
+                        cell.number_format = text_format
+                        cell.alignment = align_left
+        
+        self.logger.debug(f"Минимальное форматирование применено к '{sheet_name}' (только ТН и ИНН)", "ExcelFormatter", "_format_sheet_minimal")
     
     def _format_statistics_sheet_openpyxl(self, ws, df: pd.DataFrame) -> None:
         """
