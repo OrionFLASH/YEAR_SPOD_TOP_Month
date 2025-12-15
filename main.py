@@ -3010,7 +3010,7 @@ class FileProcessor:
     def _process_file_for_raw(self, group: str, file_name: str, df: pd.DataFrame, defaults, month: int) -> Optional[pd.DataFrame]:
         """
         Обрабатывает один файл для листа RAW.
-        
+
         ВАЖНО: Работает с уже загруженными данными из self.processed_files, которые уже содержат
         правильные колонки в зависимости от DATA_MODE (TEST/PROM). Алиасы колонок (tab_number_column,
         indicator_column, tb_column, gosb_column, fio_column) одинаковые для обоих режимов.
@@ -3025,6 +3025,10 @@ class FileProcessor:
         Returns:
             DataFrame с обработанными данными или None в случае ошибки
         """
+        # Если RAW листы отключены, не тратим время на обработку
+        if not ENABLE_RAW_SHEETS:
+            return None
+        
         tab_col = defaults.tab_number_column
         tb_col = defaults.tb_column
         gosb_col = defaults.gosb_column
@@ -3120,6 +3124,11 @@ class FileProcessor:
         Returns:
             pd.DataFrame: DataFrame с сырыми данными
         """
+        # Если RAW листы отключены, не тратим время на подготовку данных
+        if not ENABLE_RAW_SHEETS:
+            self.logger.info("RAW листы отключены (ENABLE_RAW_SHEETS=False), пропускаем подготовку RAW данных", "FileProcessor", "prepare_raw_data")
+            return pd.DataFrame()
+        
         self.logger.info("=== Начало подготовки сырых данных для листа 'RAW' ===", "FileProcessor", "prepare_raw_data")
         
         raw_data_list = []
