@@ -4200,13 +4200,24 @@ class FileProcessor:
                 group_name = futures[future]
                 try:
                     normalized_cols = future.result()
-                    self.logger.debug(f"Группа {group_name}: получено {len(normalized_cols)} нормализованных колонок: {list(normalized_cols.keys())[:5]}...", "FileProcessor", "_normalize_indicators")
+                    self.logger.debug(f"Группа {group_name}: получено {len(normalized_cols)} нормализованных колонок: {list(normalized_cols.keys())[:5] if normalized_cols else 'пусто'}...", "FileProcessor", "_normalize_indicators")
                     
                     # Добавляем нормализованные колонки в normalized_df
-                    for norm_col_name, normalized in normalized_cols.items():
-                        # ВАЖНО: Убеждаемся, что индексы совпадают при присваивании
-                        normalized_df.loc[normalized.index, norm_col_name] = normalized
-                        self.logger.debug(f"Добавлена колонка {norm_col_name} в normalized_df (длина: {len(normalized)})", "FileProcessor", "_normalize_indicators")
+                    if normalized_cols:
+                        for norm_col_name, normalized in normalized_cols.items():
+                            # ВАЖНО: Убеждаемся, что индексы совпадают при присваивании
+                            # normalized - это Series с индексами из calculated_df.index
+                            # normalized_df имеет те же индексы (так как создан как копия calculated_df[base_columns])
+                            # Проверяем совпадение индексов
+                            if list(normalized.index) == list(normalized_df.index):
+                                # Индексы совпадают - простое присваивание
+                                normalized_df[norm_col_name] = normalized
+                            else:
+                                # Индексы не совпадают - используем loc с индексами
+                                normalized_df.loc[normalized.index, norm_col_name] = normalized
+                            self.logger.debug(f"Добавлена колонка {norm_col_name} в normalized_df (длина Series: {len(normalized)}, длина normalized_df: {len(normalized_df)}, индексы совпадают: {list(normalized.index)[:3] == list(normalized_df.index)[:3]})", "FileProcessor", "_normalize_indicators")
+                    else:
+                        self.logger.warning(f"Группа {group_name}: normalized_cols пустой! Колонки не были созданы. Проверьте логи выше для диагностики.", "FileProcessor", "_normalize_indicators")
                 except Exception as e:
                     self.logger.error(f"Ошибка при нормализации группы {group_name}: {str(e)}", "FileProcessor", "_normalize_indicators")
                     import traceback
