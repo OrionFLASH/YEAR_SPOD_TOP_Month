@@ -63,6 +63,11 @@ DEBUG_TAB_NUMBER: Optional[List[str]] = ["08346532", "01378623", "00406092", "00
 # Если указан список, в лог будет записываться подробная информация о всех операциях с этими табельными номерами
 # Если список пустой или None, детальное логирование отключено
 
+# Параметр для детального логирования вариантов ТБ для каждого табельного номера
+ENABLE_DETAILED_TB_VARIANTS_LOGGING: bool = False  # True - логировать детальную информацию о найденных вариантах ТБ для каждого табельного номера, False - не логировать (по умолчанию выключено)
+# Если True, в лог будет записываться подробная информация: "для табельного: XXX найдено N вариантов ТБ: ..."
+# Если False, эта информация не логируется (но периодический вывод прогресса в консоль продолжает работать)
+
 # Параметр выбора режима данных
 DATA_MODE: str = "TEST"  # "TEST" - тестовые данные, "PROM" - пром данные
 # Определяет, какие columns использовать из конфигурации (columns_test или columns_prom)
@@ -2786,13 +2791,15 @@ class FileProcessor:
                             # Форматируем выбранную сумму с разделителем разрядов
                             selected_sum_formatted = self.logger._format_indicator(selected_sum)
                             
-                            # Табельный номер будет замаскирован в _mask_sensitive_data
-                            self.logger.debug(
-                                f"В файле {file_name} для табельного: {tab_num} найдено {len(tab_data)} вариантов ТБ: "
-                                f"{', '.join(variants_list)}. "
-                                f"Выбран вариант: ТБ='{selected_tb}' с максимальной суммой показателя: {selected_sum_formatted}",
-                                "FileProcessor", "collect_unique_tab_numbers"
-                            )
+                            # Детальное логирование вариантов ТБ только если включено
+                            if ENABLE_DETAILED_TB_VARIANTS_LOGGING:
+                                # Табельный номер будет замаскирован в _mask_sensitive_data
+                                self.logger.debug(
+                                    f"В файле {file_name} для табельного: {tab_num} найдено {len(tab_data)} вариантов ТБ: "
+                                    f"{', '.join(variants_list)}. "
+                                    f"Выбран вариант: ТБ='{selected_tb}' с максимальной суммой показателя: {selected_sum_formatted}",
+                                    "FileProcessor", "collect_unique_tab_numbers"
+                                )
                             
                         # ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ: Логируем выбор варианта для указанного табельного
                         if self.logger._is_debug_tab_number(tab_num):
@@ -6211,6 +6218,8 @@ def main():
             logger.info(f"  Детальное логирование включено для {len(DEBUG_TAB_NUMBER)} табельных номеров", "main", "main")
     else:
         logger.info(f"  Детальное логирование отключено", "main", "main")
+    
+    logger.info(f"  ENABLE_DETAILED_TB_VARIANTS_LOGGING = {ENABLE_DETAILED_TB_VARIANTS_LOGGING} - Детальное логирование вариантов ТБ для каждого табельного номера: True - логировать подробную информацию о найденных вариантах ТБ, False - не логировать (по умолчанию выключено)", "main", "main")
     
     # Параметр выбора режима данных
     logger.info(f"DATA_MODE = '{DATA_MODE}' - Режим данных: 'TEST' - тестовые данные, 'PROM' - пром данные. Определяет, какие columns использовать из конфигурации (columns_test или columns_prom)", "main", "main")
