@@ -1151,6 +1151,26 @@ class Logger:
         
         return text
     
+    def _format_indicator(self, value: Any) -> str:
+        """
+        Форматирует значение показателя (indicator) как число с разделителями разрядов и двумя знаками после запятой.
+        
+        Args:
+            value: Значение показателя (может быть числом, строкой или NaN)
+            
+        Returns:
+            str: Отформатированное значение (например, "1 234 567,89" или "0,00" для NaN)
+        """
+        try:
+            if pd.isna(value) or value == '' or value is None:
+                return "0,00"
+            num_value = float(value)
+            # Форматируем: разделитель тысяч - пробел, десятичный разделитель - запятая
+            formatted = f"{num_value:,.2f}".replace(",", " ").replace(".", ",")
+            return formatted
+        except (ValueError, TypeError):
+            return "0,00"
+    
     def _mask_sensitive_data(self, text: str) -> str:
         """
         Маскирует все чувствительные данные (табельные номера, ИД клиентов и ФИО).
@@ -2160,11 +2180,13 @@ class FileProcessor:
                         indicator_value = row.get(indicator_col, 0)
                         
                         # ФИО, табельный номер и client_id уже будут замаскированы в _mask_sensitive_data при логировании
+                        # indicator форматируем как число с разделителями разрядов и 2 знаками после запятой
                         tab_number_value = str(row.get(tab_number_col, ''))
+                        indicator_formatted = self.logger._format_indicator(indicator_value)
                         self.logger.debug_tab(
                             f"Загрузка файла {file_path.name} (группа {group_name}): найдена строка для ТН. "
                             f"Табельный: {tab_number_value}, client_id: {client_id}, ТБ: {tb_value}, ФИО: {fio_value}, "
-                            f"Показатель ({indicator_col}): {indicator_value}",
+                            f"Показатель ({indicator_col}): {indicator_formatted}",
                             tab_number=row.get(tab_number_col),
                             class_name="FileProcessor",
                             func_name="_load_file"
@@ -2726,11 +2748,11 @@ class FileProcessor:
                             for _, variant_row in tab_data.iterrows():
                                 sum_value = variant_row.get(indicator_col, 0)
                                 # Форматируем сумму с разделителем разрядов и двумя знаками после запятой
-                                sum_formatted = f"{sum_value:,.2f}".replace(",", " ").replace(".", ",")
+                                sum_formatted = self.logger._format_indicator(sum_value)
                                 variants_list.append(f"ТБ='{variant_row.get(tb_col, '')}' (сумма={sum_formatted})")
                             
                             # Форматируем выбранную сумму с разделителем разрядов
-                            selected_sum_formatted = f"{selected_sum:,.2f}".replace(",", " ").replace(".", ",")
+                            selected_sum_formatted = self.logger._format_indicator(selected_sum)
                             
                             self.logger.debug(
                                 f"В файле {file_name} для табельного {tab_num} найдено {len(tab_data)} вариантов ТБ: "
@@ -2745,20 +2767,22 @@ class FileProcessor:
                             for _, variant_row in tab_data.iterrows():
                                 sum_value = variant_row.get(indicator_col, 0)
                                 # Форматируем сумму с разделителем разрядов (не маскируется)
-                                sum_formatted = f"{sum_value:,.2f}".replace(",", " ").replace(".", ",")
+                                sum_formatted = self.logger._format_indicator(sum_value)
                                 variants_info.append({
                                     "ТБ": variant_row.get(tb_col, ''),
                                     "ФИО": variant_row.get(fio_col, ''),  # ФИО будет замаскировано в _mask_sensitive_data
                                     "Показатель": sum_formatted  # Форматированная сумма с разделителем
                                 })
                             
-                            selected_sum_formatted = f"{selected_sum:,.2f}".replace(",", " ").replace(".", ",")
+                            # Форматируем показатель с разделителями разрядов и 2 знаками после запятой
+                            selected_sum_formatted = self.logger._format_indicator(selected_sum)
                             
+                            # ФИО будет замаскировано в _mask_sensitive_data
                             self.logger.debug_tab(
                                 f"Выбор варианта ТБ для табельного в файле {file_name} (группа {group}): "
                                 f"найдено {len(tab_data)} вариантов. Все варианты: {variants_info}. "
                                 f"Выбран вариант с максимальной суммой показателя: ТБ='{max_row.get(tb_col, '')}', "
-                                f"ФИО='{max_row.get(fio_col, '')}', Показатель={selected_sum_formatted}",
+                                f"fio: {max_row.get(fio_col, '')}, Показатель={selected_sum_formatted}",
                                 tab_number=tab_num,
                                 class_name="FileProcessor",
                                 func_name="collect_unique_tab_numbers"
@@ -2795,7 +2819,8 @@ class FileProcessor:
                         if len(df_unique) > 0:
                             sample_tb = df_unique[tb_col].iloc[0] if tb_col in df_unique.columns else None
                             sample_fio = df_unique[fio_col].iloc[0] if fio_col in df_unique.columns else None
-                            self.logger.debug(f"df_unique после merge для файла {file_name}: {len(df_unique)} строк. Пример: ТБ='{sample_tb}', ФИО='{sample_fio}'", "FileProcessor", "collect_unique_tab_numbers")
+                            # ФИО будет замаскировано в _mask_sensitive_data
+            self.logger.debug(f"df_unique после merge для файла {file_name}: {len(df_unique)} строк. Пример: ТБ='{sample_tb}', fio: {sample_fio}", "FileProcessor", "collect_unique_tab_numbers")
                 else:
                     # Если нет колонки с показателем, используем старую логику
                     df_unique = df_normalized.drop_duplicates(subset=[tab_col], keep='first')
@@ -2892,7 +2917,7 @@ class FileProcessor:
                         if self.logger._is_debug_tab_number(tab_number):
                             self.logger.debug_tab(
                                 f"Собран уникальный табельный номер из файла {file_name} (группа {group}, месяц M-{month}): "
-                                f"ТБ='{tb_str}', ФИО='{fio_str}', приоритет={current_priority}",
+                                f"ТБ='{tb_str}', fio: {fio_str}, приоритет={current_priority}",
                                 tab_number=tab_number,
                                 class_name="FileProcessor",
                                 func_name="collect_unique_tab_numbers"
@@ -2997,10 +3022,14 @@ class FileProcessor:
                         file_key = f"{group} (M-{month})"
                         self.debug_tracker.tab_data[tab_data_key]["raw_data"][inn]["sums_by_file"][file_key] = float(row.get(indicator_col, 0))
                     
+                    # ФИО и client_id будут замаскированы в _mask_sensitive_data
+                    # indicator форматируем как число с разделителями разрядов и 2 знаками после запятой
+                    indicator_val = row.get(indicator_col, 0)
+                    indicator_formatted = self.logger._format_indicator(indicator_val)
                     self.logger.debug_tab(
                         f"Подготовка RAW данных для файла {file_name} (группа {group}, месяц M-{month}): "
                         f"ТБ='{row.get(tb_col, '')}', ФИО='{row.get(fio_col, '')}', "
-                        f"ИНН={row.get('client_id', '')}, Показатель={row.get(indicator_col, 0):.2f}",
+                        f"client_id: {row.get('client_id', '')}, Показатель={indicator_formatted}",
                         tab_number=tab_num,
                         class_name="FileProcessor",
                         func_name="_process_file_for_raw"
@@ -3341,7 +3370,8 @@ class FileProcessor:
             
             # РАСШИРЕННОЕ ЛОГИРОВАНИЕ: Логируем первые несколько записей и каждую 100-ю для отладки
             if processed_count <= 5 or processed_count % 100 == 0:
-                self.logger.debug(f"Подготовка строки для табельного {tab_number_formatted}: ТБ='{tb_value}', ФИО='{fio_value}' (из tab_info: {list(tab_info.keys())}, значения: {tab_info})", "FileProcessor", "prepare_summary_data")
+                # ФИО будет замаскировано в _mask_sensitive_data
+                self.logger.debug(f"Подготовка строки для табельного {tab_number_formatted}: ТБ='{tb_value}', fio: {fio_value} (из tab_info: {list(tab_info.keys())}, значения: {tab_info})", "FileProcessor", "prepare_summary_data")
                 
                 # Проверяем, что значения не пустые
                 if not tb_value and not fio_value:
@@ -3388,7 +3418,8 @@ class FileProcessor:
         if len(result_df) > 0:
             sample_tb = result_df["ТБ"].iloc[0] if "ТБ" in result_df.columns else None
             sample_fio = result_df["ФИО"].iloc[0] if "ФИО" in result_df.columns else None
-            self.logger.debug(f"summary_df (result_df) создан: {len(result_df)} строк. Пример: ТБ='{sample_tb}', ФИО='{sample_fio}'", "FileProcessor", "prepare_summary_data")
+            # ФИО будет замаскировано в _mask_sensitive_data
+            self.logger.debug(f"summary_df (result_df) создан: {len(result_df)} строк. Пример: ТБ='{sample_tb}', fio: {sample_fio}", "FileProcessor", "prepare_summary_data")
             
             # Проверяем, что не все значения пустые
             if "ТБ" in result_df.columns:
@@ -3449,7 +3480,8 @@ class FileProcessor:
                 if len(result_df) > 0:
                     sample_tb = result_df["ТБ"].iloc[0] if "ТБ" in result_df.columns else None
                     sample_fio = result_df["ФИО"].iloc[0] if "ФИО" in result_df.columns else None
-                    self.logger.debug(f"После drop_duplicates: ТБ='{sample_tb}', ФИО='{sample_fio}'", "FileProcessor", "prepare_summary_data")
+                    # ФИО будет замаскировано в _mask_sensitive_data
+                    self.logger.debug(f"После drop_duplicates: ТБ='{sample_tb}', fio: {sample_fio}", "FileProcessor", "prepare_summary_data")
         
         # Упорядочиваем колонки: сначала базовые, потом по группам и месяцам
         self.logger.debug("Лист 'Данные': Упорядочивание колонок", "FileProcessor", "prepare_summary_data")
@@ -3484,7 +3516,8 @@ class FileProcessor:
             if "ТБ" in result_df.columns:
                 non_empty_tb = result_df["ТБ"].notna() & (result_df["ТБ"] != "")
                 non_empty_fio = result_df["ФИО"].notna() & (result_df["ФИО"] != "") if "ФИО" in result_df.columns else pd.Series([False] * len(result_df))
-                self.logger.debug(f"Финальная проверка заполненности: ТБ={non_empty_tb.sum()}/{len(result_df)}, ФИО={non_empty_fio.sum()}/{len(result_df)}", "FileProcessor", "prepare_summary_data")
+                # ФИО будет замаскировано в _mask_sensitive_data
+                self.logger.debug(f"Финальная проверка заполненности: ТБ={non_empty_tb.sum()}/{len(result_df)}, fio заполнено={non_empty_fio.sum()}/{len(result_df)}", "FileProcessor", "prepare_summary_data")
                 
                 if non_empty_tb.sum() == 0:
                     self.logger.warning(f"ВНИМАНИЕ: В summary_df все значения ТБ пустые!", "FileProcessor", "prepare_summary_data")
@@ -5212,7 +5245,7 @@ class ExcelFormatter:
                                 "", "", "",
                                 tb,
                                 "", "", "",
-                                f"{sum_val:,.2f}".replace(",", " ").replace(".", ",")
+                                self.logger._format_indicator(sum_val)
                             ])
                     
                     # Пустая строка между файлами
