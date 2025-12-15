@@ -1209,7 +1209,22 @@ class Logger:
         if DEBUG_TAB_NUMBER is None or not DEBUG_TAB_NUMBER or len(DEBUG_TAB_NUMBER) == 0:
             return False
         
-        if tab_number is None or pd.isna(tab_number):
+        # Обрабатываем случаи, когда tab_number может быть массивом или списком
+        if tab_number is None:
+            return False
+        
+        # Если это массив/Series, проверяем только первый элемент или возвращаем False
+        if hasattr(tab_number, '__len__') and not isinstance(tab_number, str):
+            # Это массив, список или Series - не можем проверить напрямую
+            # В этом случае возвращаем False, так как проверка должна быть для конкретного значения
+            return False
+        
+        # Проверяем на NaN только для скалярных значений
+        try:
+            if pd.isna(tab_number):
+                return False
+        except (ValueError, TypeError):
+            # Если pd.isna не может обработать (например, массив), возвращаем False
             return False
         
         # Нормализуем табельный номер для сравнения
@@ -4062,11 +4077,13 @@ class FileProcessor:
                     min_val = group_min.loc[debug_idx] if debug_idx in group_min.index else None
                     max_val = group_max.loc[debug_idx] if debug_idx in group_max.index else None
                     
+                    # Получаем табельный номер из calculated_df для этого индекса
+                    tab_num_value = calculated_df.loc[debug_idx, "Табельный"] if "Табельный" in calculated_df.columns else None
                     self.logger.debug_tab(
                         f"Нормализация показателя {group_name} для месяца M-{month}: "
                         f"исходное значение={original_value}, нормализованное={normalized_value}, "
                         f"min={min_val}, max={max_val}, направление={direction}",
-                        tab_number=DEBUG_TAB_NUMBER,
+                        tab_number=tab_num_value,
                         class_name="FileProcessor",
                         func_name="_normalize_group"
                     )
