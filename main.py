@@ -4076,10 +4076,16 @@ class FileProcessor:
         # Группируем колонки по месяцам и группам
         month_data = {}  # {month: {"OD": col_name, "RA": col_name, "PS": col_name}}
         
+        # Логируем все колонки для диагностики
+        all_cols = list(calculated_df.columns)
+        self.logger.debug(f"Всего колонок в calculated_df: {len(all_cols)}. Первые 20: {all_cols[:20]}", "FileProcessor", "_normalize_indicators")
+        
         for col in calculated_df.columns:
             if col in base_columns:
                 continue
             
+            # Ищем паттерн: группа (M-номер) с возможными дополнительными символами после
+            # Формат может быть: "OD (M-1)", "OD (M-1) [факт]", "OD (M-2) [M-2→M-1]" и т.д.
             match = re.search(r'^([A-Z]+)\s+\(M-(\d{1,2})\)', col)
             if match:
                 group = match.group(1)
@@ -4088,6 +4094,13 @@ class FileProcessor:
                 if month not in month_data:
                     month_data[month] = {}
                 month_data[month][group] = col
+                self.logger.debug(f"Найдена колонка для нормализации: {col} -> группа={group}, месяц={month}", "FileProcessor", "_normalize_indicators")
+        
+        # Логируем результат парсинга
+        if month_data:
+            self.logger.debug(f"Найдено месяцев для нормализации: {sorted(month_data.keys())}. Данные: {month_data}", "FileProcessor", "_normalize_indicators")
+        else:
+            self.logger.warning(f"ВНИМАНИЕ: Не найдено ни одной колонки для нормализации! Все колонки calculated_df: {all_cols}", "FileProcessor", "_normalize_indicators")
         
         # Создаем DataFrame для нормализованных данных
         # ВАЖНО: Убеждаемся, что базовые колонки существуют и не пустые
@@ -4145,12 +4158,17 @@ class FileProcessor:
                 group_name = futures[future]
                 try:
                     normalized_cols = future.result()
+                    self.logger.debug(f"Группа {group_name}: получено {len(normalized_cols)} нормализованных колонок: {list(normalized_cols.keys())[:5]}...", "FileProcessor", "_normalize_indicators")
+                    
                     # Добавляем нормализованные колонки в normalized_df
                     for norm_col_name, normalized in normalized_cols.items():
                         # ВАЖНО: Убеждаемся, что индексы совпадают при присваивании
                         normalized_df.loc[normalized.index, norm_col_name] = normalized
+                        self.logger.debug(f"Добавлена колонка {norm_col_name} в normalized_df (длина: {len(normalized)})", "FileProcessor", "_normalize_indicators")
                 except Exception as e:
                     self.logger.error(f"Ошибка при нормализации группы {group_name}: {str(e)}", "FileProcessor", "_normalize_indicators")
+                    import traceback
+                    self.logger.error(f"Трассировка ошибки: {traceback.format_exc()}", "FileProcessor", "_normalize_indicators")
         
         # ВАЖНО: Сбрасываем индекс только в конце, после всех присваиваний
         normalized_df = normalized_df.reset_index(drop=True)
@@ -4161,6 +4179,13 @@ class FileProcessor:
             sample_fio = normalized_df["ФИО"].iloc[0] if "ФИО" in normalized_df.columns else None
             # ФИО будет замаскировано в _mask_sensitive_data
             self.logger.debug(f"normalized_df финальный: {len(normalized_df)} строк. Пример: ТБ='{sample_tb}', fio: {sample_fio}", "FileProcessor", "_normalize_indicators")
+            
+            # ВАЖНО: Проверяем, что нормализованные колонки добавлены
+            norm_cols = [col for col in normalized_df.columns if col not in base_columns]
+            if norm_cols:
+                self.logger.debug(f"Нормализованные колонки в normalized_df: {len(norm_cols)} колонок. Первые 10: {norm_cols[:10]}", "FileProcessor", "_normalize_indicators")
+            else:
+                self.logger.error(f"КРИТИЧЕСКАЯ ОШИБКА: В normalized_df нет нормализованных колонок! Только базовые: {list(normalized_df.columns)}", "FileProcessor", "_normalize_indicators")
         
         self.logger.info(f"Нормализация завершена: {len(normalized_df)} строк, {len(normalized_df.columns)} колонок", "FileProcessor", "_normalize_indicators")
         return normalized_df
