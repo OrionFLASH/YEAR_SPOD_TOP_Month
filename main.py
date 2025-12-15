@@ -1320,11 +1320,18 @@ class DebugTabNumberTracker:
         self.tab_data: Dict[str, Dict[str, Any]] = {}
         
         # Инициализируем структуру для каждого табельного номера из DEBUG_TAB_NUMBER
-        # ВАЖНО: Нормализуем табельные номера (8 знаков с лидирующими нулями) для совместимости
+        # ВАЖНО: Нормализуем табельные номера используя ту же логику, что и _normalize_tab_number
+        # (удаляем лидирующие нули, затем добавляем до 8 знаков)
         if DEBUG_TAB_NUMBER and len(DEBUG_TAB_NUMBER) > 0:
             for tab_num in DEBUG_TAB_NUMBER:
-                # Нормализуем табельный номер: убираем пробелы, добавляем лидирующие нули до 8 знаков
-                tab_num_normalized = str(tab_num).strip().zfill(8)
+                # Используем ту же логику нормализации, что и _normalize_tab_number
+                tab_num_str = str(tab_num).strip()
+                if not tab_num_str or tab_num_str.lower() == 'nan':
+                    continue
+                # Удаляем лидирующие нули для корректной нормализации (как в _normalize_tab_number)
+                tab_num_clean = tab_num_str.lstrip('0') if tab_num_str.lstrip('0') else '0'
+                tab_num_normalized = tab_num_clean.zfill(8)
+                
                 self.tab_data[tab_num_normalized] = {
                     "source_files": {},
                     "raw_data": {},
@@ -1334,9 +1341,9 @@ class DebugTabNumberTracker:
                     "best_month": None,
                     "unique_inn_count": 0
                 }
-                # Также сохраняем оригинальный номер для обратной совместимости
-                if tab_num_normalized != str(tab_num).strip():
-                    self.tab_data[str(tab_num).strip()] = self.tab_data[tab_num_normalized]
+                # Также сохраняем оригинальный номер (без нормализации) для обратной совместимости
+                if tab_num_normalized != tab_num_str:
+                    self.tab_data[tab_num_str] = self.tab_data[tab_num_normalized]
     
     def add_source_file_data(self, tab_number: str, file_name: str, group: str, month: int,
                              clients_data: List[Dict[str, Any]], tb_variants: Dict[str, float],
@@ -1354,11 +1361,16 @@ class DebugTabNumberTracker:
             selected_tb: Выбранный ТБ
             selected_sum: Сумма выбранного варианта
         """
-        # Нормализуем табельный номер для поиска в трекере
-        tab_number_normalized = str(tab_number).strip().zfill(8)
+        # Нормализуем табельный номер для поиска в трекере (используем ту же логику, что и _normalize_tab_number)
+        tab_number_str = str(tab_number).strip()
+        if not tab_number_str or tab_number_str.lower() == 'nan':
+            return
+        # Удаляем лидирующие нули для корректной нормализации (как в _normalize_tab_number)
+        tab_number_clean = tab_number_str.lstrip('0') if tab_number_str.lstrip('0') else '0'
+        tab_number_normalized = tab_number_clean.zfill(8)
+        
         if tab_number_normalized not in self.tab_data:
-            # Пробуем найти без нормализации
-            tab_number_str = str(tab_number).strip()
+            # Пробуем найти без нормализации (оригинальный формат)
             if tab_number_str not in self.tab_data:
                 return
             tab_number_normalized = tab_number_str
@@ -1380,10 +1392,16 @@ class DebugTabNumberTracker:
             tab_number: Табельный номер
             raw_data: Данные по ИНН после схлопывания
         """
-        # Нормализуем табельный номер для поиска в трекере
-        tab_number_normalized = str(tab_number).strip().zfill(8)
+        # Нормализуем табельный номер для поиска в трекере (используем ту же логику, что и _normalize_tab_number)
+        tab_number_str = str(tab_number).strip()
+        if not tab_number_str or tab_number_str.lower() == 'nan':
+            return
+        # Удаляем лидирующие нули для корректной нормализации (как в _normalize_tab_number)
+        tab_number_clean = tab_number_str.lstrip('0') if tab_number_str.lstrip('0') else '0'
+        tab_number_normalized = tab_number_clean.zfill(8)
+        
         if tab_number_normalized not in self.tab_data:
-            tab_number_str = str(tab_number).strip()
+            # Пробуем найти без нормализации (оригинальный формат)
             if tab_number_str not in self.tab_data:
                 return
             tab_number_normalized = tab_number_str
@@ -1398,10 +1416,16 @@ class DebugTabNumberTracker:
             tab_number: Табельный номер
             calculations: Результаты расчетов по месяцам
         """
-        # Нормализуем табельный номер для поиска в трекере
-        tab_number_normalized = str(tab_number).strip().zfill(8)
+        # Нормализуем табельный номер для поиска в трекере (используем ту же логику, что и _normalize_tab_number)
+        tab_number_str = str(tab_number).strip()
+        if not tab_number_str or tab_number_str.lower() == 'nan':
+            return
+        # Удаляем лидирующие нули для корректной нормализации (как в _normalize_tab_number)
+        tab_number_clean = tab_number_str.lstrip('0') if tab_number_str.lstrip('0') else '0'
+        tab_number_normalized = tab_number_clean.zfill(8)
+        
         if tab_number_normalized not in self.tab_data:
-            tab_number_str = str(tab_number).strip()
+            # Пробуем найти без нормализации (оригинальный формат)
             if tab_number_str not in self.tab_data:
                 return
             tab_number_normalized = tab_number_str
@@ -1416,10 +1440,16 @@ class DebugTabNumberTracker:
             tab_number: Табельный номер
             normalization: Нормализованные значения по месяцам
         """
-        # Нормализуем табельный номер для поиска в трекере
-        tab_number_normalized = str(tab_number).strip().zfill(8)
+        # Нормализуем табельный номер для поиска в трекере (используем ту же логику, что и _normalize_tab_number)
+        tab_number_str = str(tab_number).strip()
+        if not tab_number_str or tab_number_str.lower() == 'nan':
+            return
+        # Удаляем лидирующие нули для корректной нормализации (как в _normalize_tab_number)
+        tab_number_clean = tab_number_str.lstrip('0') if tab_number_str.lstrip('0') else '0'
+        tab_number_normalized = tab_number_clean.zfill(8)
+        
         if tab_number_normalized not in self.tab_data:
-            tab_number_str = str(tab_number).strip()
+            # Пробуем найти без нормализации (оригинальный формат)
             if tab_number_str not in self.tab_data:
                 return
             tab_number_normalized = tab_number_str
@@ -1435,10 +1465,16 @@ class DebugTabNumberTracker:
             scores: Score по месяцам
             best_month: Лучший месяц
         """
-        # Нормализуем табельный номер для поиска в трекере
-        tab_number_normalized = str(tab_number).strip().zfill(8)
+        # Нормализуем табельный номер для поиска в трекере (используем ту же логику, что и _normalize_tab_number)
+        tab_number_str = str(tab_number).strip()
+        if not tab_number_str or tab_number_str.lower() == 'nan':
+            return
+        # Удаляем лидирующие нули для корректной нормализации (как в _normalize_tab_number)
+        tab_number_clean = tab_number_str.lstrip('0') if tab_number_str.lstrip('0') else '0'
+        tab_number_normalized = tab_number_clean.zfill(8)
+        
         if tab_number_normalized not in self.tab_data:
-            tab_number_str = str(tab_number).strip()
+            # Пробуем найти без нормализации (оригинальный формат)
             if tab_number_str not in self.tab_data:
                 return
             tab_number_normalized = tab_number_str
@@ -1454,10 +1490,16 @@ class DebugTabNumberTracker:
             tab_number: Табельный номер
             count: Количество уникальных ИНН
         """
-        # Нормализуем табельный номер для поиска в трекере
-        tab_number_normalized = str(tab_number).strip().zfill(8)
+        # Нормализуем табельный номер для поиска в трекере (используем ту же логику, что и _normalize_tab_number)
+        tab_number_str = str(tab_number).strip()
+        if not tab_number_str or tab_number_str.lower() == 'nan':
+            return
+        # Удаляем лидирующие нули для корректной нормализации (как в _normalize_tab_number)
+        tab_number_clean = tab_number_str.lstrip('0') if tab_number_str.lstrip('0') else '0'
+        tab_number_normalized = tab_number_clean.zfill(8)
+        
         if tab_number_normalized not in self.tab_data:
-            tab_number_str = str(tab_number).strip()
+            # Пробуем найти без нормализации (оригинальный формат)
             if tab_number_str not in self.tab_data:
                 return
             tab_number_normalized = tab_number_str
@@ -1474,7 +1516,20 @@ class DebugTabNumberTracker:
         Returns:
             Dict с данными или None, если табельный номер не отслеживается
         """
-        return self.tab_data.get(tab_number)
+        # Нормализуем табельный номер для поиска в трекере (используем ту же логику, что и _normalize_tab_number)
+        tab_number_str = str(tab_number).strip()
+        if not tab_number_str or tab_number_str.lower() == 'nan':
+            return None
+        # Удаляем лидирующие нули для корректной нормализации (как в _normalize_tab_number)
+        tab_number_clean = tab_number_str.lstrip('0') if tab_number_str.lstrip('0') else '0'
+        tab_number_normalized = tab_number_clean.zfill(8)
+        
+        if tab_number_normalized in self.tab_data:
+            return self.tab_data[tab_number_normalized]
+        # Пробуем найти без нормализации (оригинальный формат)
+        if tab_number_str in self.tab_data:
+            return self.tab_data[tab_number_str]
+        return None
     
     def get_all_tab_numbers(self) -> List[str]:
         """Возвращает список всех отслеживаемых табельных номеров."""
@@ -2561,8 +2616,11 @@ class FileProcessor:
                         selected_sum = float(max_row.get(indicator_col, 0))
                         
                         # Добавляем данные в трекер
+                        # ВАЖНО: tab_num уже нормализован через _normalize_tab_number при загрузке файла
+                        # Используем его как есть, но также пробуем нормализовать для совместимости
+                        tab_num_str = str(tab_num).strip()
                         self.debug_tracker.add_source_file_data(
-                            tab_number=tab_num,
+                            tab_number=tab_num_str,
                             file_name=file_name,
                             group=group,
                             month=month,
@@ -2571,6 +2629,15 @@ class FileProcessor:
                             selected_tb=selected_tb,
                             selected_sum=selected_sum
                         )
+                        
+                        # Логируем для диагностики
+                        if self.logger._is_debug_tab_number(tab_num_str):
+                            self.logger.debug(
+                                f"Добавлены данные в трекер для табельного {tab_num_str} из файла {file_name}: "
+                                f"клиентов={len(clients_data)}, вариантов ТБ={len(tb_variants)}, выбран ТБ={selected_tb}",
+                                "FileProcessor",
+                                "collect_unique_tab_numbers"
+                            )
                         
                         if len(tab_data) > 1:
                             # Формируем детальную информацию о вариантах
@@ -2824,15 +2891,23 @@ class FileProcessor:
             debug_rows = grouped[debug_mask]
             if len(debug_rows) > 0:
                 for _, row in debug_rows.iterrows():
-                    tab_num = str(row.get(tab_col, ''))
+                    tab_num = str(row.get(tab_col, '')).strip()
                     # Собираем данные для трекера
-                    if tab_num in self.debug_tracker.tab_data:
-                        if "raw_data" not in self.debug_tracker.tab_data[tab_num]:
-                            self.debug_tracker.tab_data[tab_num]["raw_data"] = {}
+                    # Пробуем найти с нормализацией и без
+                    tab_num_normalized = tab_num.zfill(8)
+                    tab_data_key = None
+                    if tab_num_normalized in self.debug_tracker.tab_data:
+                        tab_data_key = tab_num_normalized
+                    elif tab_num in self.debug_tracker.tab_data:
+                        tab_data_key = tab_num
+                    
+                    if tab_data_key:
+                        if "raw_data" not in self.debug_tracker.tab_data[tab_data_key]:
+                            self.debug_tracker.tab_data[tab_data_key]["raw_data"] = {}
                         
                         inn = str(row.get('client_id', ''))
-                        if inn not in self.debug_tracker.tab_data[tab_num]["raw_data"]:
-                            self.debug_tracker.tab_data[tab_num]["raw_data"][inn] = {
+                        if inn not in self.debug_tracker.tab_data[tab_data_key]["raw_data"]:
+                            self.debug_tracker.tab_data[tab_data_key]["raw_data"][inn] = {
                                 "ТБ": str(row.get(tb_col, '')),
                                 "ФИО": str(row.get(fio_col, '')),
                                 "sums_by_file": {}
@@ -2840,7 +2915,7 @@ class FileProcessor:
                         
                         # Добавляем сумму для этого файла
                         file_key = f"{group} (M-{month})"
-                        self.debug_tracker.tab_data[tab_num]["raw_data"][inn]["sums_by_file"][file_key] = float(row.get(indicator_col, 0))
+                        self.debug_tracker.tab_data[tab_data_key]["raw_data"][inn]["sums_by_file"][file_key] = float(row.get(indicator_col, 0))
                     
                     self.logger.debug_tab(
                         f"Подготовка RAW данных для файла {file_name} (группа {group}, месяц M-{month}): "
@@ -4078,8 +4153,18 @@ class FileProcessor:
             
             # Собираем данные для трекера
             for tab_num in self.debug_tracker.get_all_tab_numbers():
-                tab_num_str = str(tab_num).strip().lstrip('0')
+                # Пробуем найти в unique_inn_count с нормализацией
+                tab_num_str = str(tab_num).strip()
+                # Пробуем найти как есть (уже нормализован)
                 count = unique_inn_count.get(tab_num_str, 0)
+                if count == 0:
+                    # Пробуем найти через сравнение без лидирующих нулей
+                    tab_num_clean = tab_num_str.lstrip('0') if tab_num_str.lstrip('0') else '0'
+                    for key, value in unique_inn_count.items():
+                        key_clean = str(key).strip().lstrip('0') if str(key).strip().lstrip('0') else '0'
+                        if key_clean == tab_num_clean:
+                            count = value
+                            break
                 self.debug_tracker.set_unique_inn_count(tab_num_str, count)
             
             # Логируем статистику для диагностики
@@ -4323,8 +4408,19 @@ class FileProcessor:
         # Собираем данные для трекера: Score и лучший месяц
         if "Табельный" in places_df.columns:
             for tab_num in self.debug_tracker.get_all_tab_numbers():
-                tab_num_str = str(tab_num).strip().lstrip('0')
-                tab_mask = places_df["Табельный"].astype(str).str.strip().str.lstrip('0') == tab_num_str
+                # Нормализуем табельный номер для поиска (используем ту же логику, что и в DataFrame)
+                # В DataFrame табельные номера нормализованы через _normalize_tab_number (8 знаков с лидирующими нулями)
+                tab_num_normalized = str(tab_num).strip()
+                # Если табельный номер уже в формате 8 знаков, используем его как есть
+                # Иначе пробуем найти через сравнение без лидирующих нулей
+                tab_mask = places_df["Табельный"].astype(str).str.strip() == tab_num_normalized
+                if not tab_mask.any():
+                    # Пробуем найти через сравнение без лидирующих нулей
+                    tab_num_clean = tab_num_normalized.lstrip('0') if tab_num_normalized.lstrip('0') else '0'
+                    places_clean = places_df["Табельный"].astype(str).str.strip().str.lstrip('0')
+                    places_clean = places_clean.apply(lambda x: x if x else '0')
+                    tab_mask = places_clean == tab_num_clean
+                
                 if tab_mask.any():
                     tab_idx = places_df[tab_mask].index[0]
                     
@@ -4337,7 +4433,17 @@ class FileProcessor:
                             scores_dict[str(month)] = float(score_val) if pd.notna(score_val) else 0
                     
                     best_month_val = best_month_series.loc[tab_idx] if tab_idx in best_month_series.index else ""
-                    self.debug_tracker.add_scores(tab_num_str, scores_dict, str(best_month_val))
+                    # Используем нормализованный номер из DataFrame для добавления в трекер
+                    tab_num_from_df = str(places_df.loc[tab_idx, "Табельный"]).strip()
+                    self.debug_tracker.add_scores(tab_num_from_df, scores_dict, str(best_month_val))
+                    
+                    # Логируем для диагностики
+                    self.logger.debug(
+                        f"Добавлены данные в трекер для табельного {tab_num_from_df}: "
+                        f"scores={len(scores_dict)}, best_month={best_month_val}",
+                        "FileProcessor",
+                        "_calculate_best_month_variant3"
+                    )
                     
                     # Собираем данные расчетов
                     if tab_idx in calculated_df.index:
@@ -4360,7 +4466,9 @@ class FileProcessor:
                                 "growth_2m": 0,  # Упрощенно, можно расширить
                                 "growth_3m": 0  # Упрощенно, можно расширить
                             }
-                        self.debug_tracker.add_calculations(tab_num_str, calc_dict)
+                        # Используем нормализованный номер из DataFrame для добавления в трекер
+                        tab_num_from_df = str(places_df.loc[tab_idx, "Табельный"]).strip()
+                        self.debug_tracker.add_calculations(tab_num_from_df, calc_dict)
                     
                     # Собираем данные нормализации
                     if tab_idx in normalized_df.index:
@@ -4375,7 +4483,17 @@ class FileProcessor:
                                 "RA": float(normalized_df.loc[tab_idx, ra_norm_col]) if ra_norm_col and pd.notna(normalized_df.loc[tab_idx, ra_norm_col]) else 0,
                                 "PS": float(normalized_df.loc[tab_idx, ps_norm_col]) if ps_norm_col and pd.notna(normalized_df.loc[tab_idx, ps_norm_col]) else 0
                             }
-                        self.debug_tracker.add_normalization(tab_num_str, norm_dict)
+                        # Используем нормализованный номер из DataFrame для добавления в трекер
+                        tab_num_from_df = str(places_df.loc[tab_idx, "Табельный"]).strip()
+                        self.debug_tracker.add_normalization(tab_num_from_df, norm_dict)
+                        
+                        # Логируем для диагностики
+                        self.logger.debug(
+                            f"Добавлены данные нормализации в трекер для табельного {tab_num_from_df}: "
+                            f"месяцев={len(norm_dict)}",
+                            "FileProcessor",
+                            "_calculate_best_month_variant3"
+                        )
         
         self.logger.info(f"Расчет лучшего месяца завершен: определен для {len(best_month_series[best_month_series != ''])} КМ", "FileProcessor", "_calculate_best_month_variant3")
         
@@ -4912,10 +5030,22 @@ class ExcelFormatter:
         for tab_number in all_tab_numbers:
             tab_data = debug_tracker.get_tab_data(tab_number)
             if not tab_data:
-                self.logger.warning(f"Нет данных для табельного номера {tab_number} в debug_tracker", "ExcelFormatter", "_create_debug_tab_sheets")
+                self.logger.warning(f"Нет данных для табельного номера {tab_number} в debug_tracker. Доступные ключи: {list(debug_tracker.tab_data.keys())}", "ExcelFormatter", "_create_debug_tab_sheets")
                 continue
             
-            self.logger.info(f"Обработка табельного номера {tab_number}: source_files={len(tab_data.get('source_files', {}))}, raw_data={len(tab_data.get('raw_data', {}))}", "ExcelFormatter", "_create_debug_tab_sheets")
+            source_files_count = len(tab_data.get('source_files', {}))
+            raw_data_count = len(tab_data.get('raw_data', {}))
+            calculations_count = len(tab_data.get('calculations', {}))
+            normalization_count = len(tab_data.get('normalization', {}))
+            scores_count = len(tab_data.get('scores', {}))
+            
+            self.logger.info(
+                f"Обработка табельного номера {tab_number}: "
+                f"source_files={source_files_count}, raw_data={raw_data_count}, "
+                f"calculations={calculations_count}, normalization={normalization_count}, scores={scores_count}",
+                "ExcelFormatter",
+                "_create_debug_tab_sheets"
+            )
             
             # Создаем лист для каждого табельного номера
             sheet_name = f"Детально_{tab_number}"
