@@ -4885,7 +4885,7 @@ class ExcelFormatter:
         try:
             if OPENPYXL_AVAILABLE:
                 # Используем openpyxl для форматирования
-                self._create_with_openpyxl(raw_df, summary_df, calculated_df, normalized_df, places_df, final_df, output_path, statistics_df)
+                self._create_with_openpyxl(raw_df, summary_df, calculated_df, normalized_df, places_df, final_df, output_path, statistics_df, debug_tracker)
             else:
                 # Используем pandas ExcelWriter без форматирования
                 self.logger.warning("openpyxl недоступен, создается файл без форматирования", "ExcelFormatter", "create_formatted_excel")
@@ -5016,22 +5016,52 @@ class ExcelFormatter:
             debug_tracker: Трекер с собранными данными
             writer: ExcelWriter для записи листов
         """
+        self.logger.info("=== НАЧАЛО СОЗДАНИЯ ДЕТАЛЬНЫХ ЛИСТОВ ===", "ExcelFormatter", "_create_debug_tab_sheets")
+        
         if not debug_tracker:
-            self.logger.warning("debug_tracker не передан в _create_debug_tab_sheets", "ExcelFormatter", "_create_debug_tab_sheets")
+            self.logger.error("debug_tracker не передан в _create_debug_tab_sheets", "ExcelFormatter", "_create_debug_tab_sheets")
             return
         
         all_tab_numbers = debug_tracker.get_all_tab_numbers()
+        self.logger.info(f"Получены табельные номера из трекера: {all_tab_numbers} (всего {len(all_tab_numbers)})", "ExcelFormatter", "_create_debug_tab_sheets")
+        self.logger.info(f"Все ключи в tab_data: {list(debug_tracker.tab_data.keys())}", "ExcelFormatter", "_create_debug_tab_sheets")
+        
         if len(all_tab_numbers) == 0:
-            self.logger.warning("В debug_tracker нет табельных номеров для создания детальных листов", "ExcelFormatter", "_create_debug_tab_sheets")
+            self.logger.error("В debug_tracker нет табельных номеров для создания детальных листов. Проверьте, что DEBUG_TAB_NUMBER указан и данные собираются в трекер.", "ExcelFormatter", "_create_debug_tab_sheets")
             return
         
         self.logger.info(f"Создание детальных листов для {len(all_tab_numbers)} табельных номеров: {all_tab_numbers}", "ExcelFormatter", "_create_debug_tab_sheets")
         
         for tab_number in all_tab_numbers:
+            self.logger.info(f"Обработка табельного номера: {tab_number} (тип: {type(tab_number)})", "ExcelFormatter", "_create_debug_tab_sheets")
+            
+            # Пробуем получить данные разными способами
             tab_data = debug_tracker.get_tab_data(tab_number)
             if not tab_data:
-                self.logger.warning(f"Нет данных для табельного номера {tab_number} в debug_tracker. Доступные ключи: {list(debug_tracker.tab_data.keys())}", "ExcelFormatter", "_create_debug_tab_sheets")
-                continue
+                # Пробуем найти через прямой доступ к tab_data
+                self.logger.warning(f"get_tab_data вернул None для {tab_number}. Пробуем прямой доступ...", "ExcelFormatter", "_create_debug_tab_sheets")
+                self.logger.info(f"Доступные ключи в tab_data: {list(debug_tracker.tab_data.keys())}", "ExcelFormatter", "_create_debug_tab_sheets")
+                
+                # Пробуем найти через нормализацию
+                tab_num_str = str(tab_number).strip()
+                tab_num_clean = tab_num_str.lstrip('0') if tab_num_str.lstrip('0') else '0'
+                tab_num_normalized = tab_num_clean.zfill(8)
+                
+                if tab_num_normalized in debug_tracker.tab_data:
+                    tab_data = debug_tracker.tab_data[tab_num_normalized]
+                    self.logger.info(f"Найдены данные по нормализованному ключу: {tab_num_normalized}", "ExcelFormatter", "_create_debug_tab_sheets")
+                elif tab_num_str in debug_tracker.tab_data:
+                    tab_data = debug_tracker.tab_data[tab_num_str]
+                    self.logger.info(f"Найдены данные по оригинальному ключу: {tab_num_str}", "ExcelFormatter", "_create_debug_tab_sheets")
+                else:
+                    self.logger.error(
+                        f"Нет данных для табельного номера {tab_number} в debug_tracker. "
+                        f"Доступные ключи: {list(debug_tracker.tab_data.keys())}. "
+                        f"Пробовали: нормализованный={tab_num_normalized}, оригинальный={tab_num_str}",
+                        "ExcelFormatter",
+                        "_create_debug_tab_sheets"
+                    )
+                    continue
             
             source_files_count = len(tab_data.get('source_files', {}))
             raw_data_count = len(tab_data.get('raw_data', {}))
@@ -5199,6 +5229,12 @@ class ExcelFormatter:
             summary_df = pd.DataFrame(summary_rows[1:], columns=summary_rows[0])
             tables_data.append(("Итоговая статистика", summary_df))
             
+            self.logger.info(f"Создано {len(tables_data)} таблиц для листа {sheet_name}", "ExcelFormatter", "_create_debug_tab_sheets")
+            
+            if len(tables_data) == 0:
+                self.logger.warning(f"Нет данных для создания листа {sheet_name}, пропускаем", "ExcelFormatter", "_create_debug_tab_sheets")
+                continue
+            
             # Объединяем все таблицы в один DataFrame для листа
             # Создаем вертикальное объединение таблиц с заголовками
             all_rows = []
@@ -5221,10 +5257,16 @@ class ExcelFormatter:
                         row.append("")
                 
                 debug_df = pd.DataFrame(all_rows)
-                debug_df.to_excel(writer, sheet_name=sheet_name, index=False, header=False)
-                self.logger.info(f"Создан детальный лист '{sheet_name}' для табельного номера {tab_number}", "ExcelFormatter", "_create_debug_tab_sheets")
+                self.logger.info(f"Сохранение листа {sheet_name} с {len(debug_df)} строками и {len(debug_df.columns)} колонками", "ExcelFormatter", "_create_debug_tab_sheets")
+                try:
+                    debug_df.to_excel(writer, sheet_name=sheet_name, index=False, header=False)
+                    self.logger.info(f"Лист {sheet_name} успешно создан для табельного номера {tab_number}", "ExcelFormatter", "_create_debug_tab_sheets")
+                except Exception as e:
+                    self.logger.error(f"Ошибка при сохранении листа {sheet_name}: {str(e)}", "ExcelFormatter", "_create_debug_tab_sheets", exc_info=True)
             else:
-                self.logger.warning(f"Нет данных для создания детального листа '{sheet_name}' для табельного номера {tab_number}", "ExcelFormatter", "_create_debug_tab_sheets")
+                self.logger.warning(f"Нет строк для создания листа {sheet_name} для табельного номера {tab_number}", "ExcelFormatter", "_create_debug_tab_sheets")
+        
+        self.logger.info("=== ЗАВЕРШЕНО СОЗДАНИЕ ДЕТАЛЬНЫХ ЛИСТОВ ===", "ExcelFormatter", "_create_debug_tab_sheets")
     
     def _create_with_openpyxl(self, raw_df: pd.DataFrame, summary_df: pd.DataFrame, calculated_df: pd.DataFrame,
                              normalized_df: pd.DataFrame, places_df: pd.DataFrame, final_df: pd.DataFrame,
@@ -5330,11 +5372,21 @@ class ExcelFormatter:
                     other_sheets.append(("Статистика", statistics_df))
                 
                 # Создаем детальные листы для табельных номеров из DEBUG_TAB_NUMBER
-                if debug_tracker and len(debug_tracker.get_all_tab_numbers()) > 0:
-                    try:
-                        self._create_debug_tab_sheets(debug_tracker, writer)
-                    except Exception as e:
-                        self.logger.warning(f"Ошибка при создании детальных листов: {str(e)}", "ExcelFormatter", "_create_with_openpyxl")
+                self.logger.info(f"Проверка создания детальных листов: debug_tracker={debug_tracker is not None}", "ExcelFormatter", "_create_with_openpyxl")
+                if debug_tracker:
+                    tab_numbers = debug_tracker.get_all_tab_numbers()
+                    self.logger.info(f"Табельные номера в трекере: {tab_numbers} (всего {len(tab_numbers)})", "ExcelFormatter", "_create_with_openpyxl")
+                    if len(tab_numbers) > 0:
+                        try:
+                            self.logger.info("Вызов _create_debug_tab_sheets...", "ExcelFormatter", "_create_with_openpyxl")
+                            self._create_debug_tab_sheets(debug_tracker, writer)
+                            self.logger.info("_create_debug_tab_sheets завершен успешно", "ExcelFormatter", "_create_with_openpyxl")
+                        except Exception as e:
+                            self.logger.error(f"Ошибка при создании детальных листов: {str(e)}", "ExcelFormatter", "_create_with_openpyxl", exc_info=True)
+                    else:
+                        self.logger.warning("debug_tracker пуст, детальные листы не будут созданы", "ExcelFormatter", "_create_with_openpyxl")
+                else:
+                    self.logger.warning("debug_tracker не передан, детальные листы не будут созданы", "ExcelFormatter", "_create_with_openpyxl")
                 
                 for sheet_idx, (sheet_name, df) in enumerate(other_sheets, 1):
                     current_time = time_func()
