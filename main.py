@@ -3963,6 +3963,7 @@ class FileProcessor:
                 group_cols[month] = col
         
         if not group_cols:
+            self.logger.warning(f"Группа {group_name}: не найдено ни одной колонки для нормализации. month_data содержит: {month_data}", "FileProcessor", "_normalize_group")
             return {}
         
         normalized_cols = {}
@@ -4146,6 +4147,11 @@ class FileProcessor:
         # ОПТИМИЗАЦИЯ: Параллельная нормализация для всех групп (OD, RA, PS)
         # Нормализуем все группы параллельно
         self.logger.debug(f"Параллельная нормализация всех групп: OD, RA, PS (max_workers=3)", "FileProcessor", "_normalize_indicators")
+        
+        # Проверяем, что есть данные для нормализации
+        if not month_data:
+            self.logger.error("КРИТИЧЕСКАЯ ОШИБКА: month_data пустой! Не найдено ни одной колонки для нормализации. Проверьте формат колонок в calculated_df.", "FileProcessor", "_normalize_indicators")
+            return normalized_df
         
         with ThreadPoolExecutor(max_workers=3) as executor:
             futures = {
