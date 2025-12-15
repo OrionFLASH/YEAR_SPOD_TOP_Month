@@ -3928,13 +3928,15 @@ class FileProcessor:
                                 prev2_val_debug = prev2_val.loc[debug_idx] if debug_idx in prev2_val.index else 0
                                 result_debug = calculated_df.loc[debug_idx, full_name] if debug_idx in calculated_df.index else 0
                                 
+                                # Получаем табельный номер из calculated_df для этого индекса
+                                tab_num_value = calculated_df.loc[debug_idx, "Табельный"] if "Табельный" in calculated_df.columns else None
                                 self.logger.debug_tab(
                                     f"Расчет типа 3 для группы {group}, месяц M-{month}: "
                                     f"текущее значение (M-{month})={curr_val_debug}, "
                                     f"предыдущее значение (M-{prev_month})={prev1_val_debug}, "
                                     f"пред-предыдущее значение (M-{prev2_month})={prev2_val_debug}, "
                                     f"результат (M-{month} - 2*M-{prev_month} + M-{prev2_month})={result_debug}",
-                                    tab_number=DEBUG_TAB_NUMBER,
+                                    tab_number=tab_num_value,
                                     class_name="FileProcessor",
                                     func_name="prepare_calculated_data"
                                 )
@@ -4491,9 +4493,11 @@ class FileProcessor:
                     if score_val is not None:
                         scores_info[f"M-{month}"] = float(score_val)
                 
+                # Получаем табельный номер из calculated_df для этого индекса
+                tab_num_value = calculated_df.loc[debug_idx, "Табельный"] if "Табельный" in calculated_df.columns else None
                 self.logger.debug_tab(
                     f"Расчет рангов (мест): Score по месяцам: {scores_info}, Места по месяцам: {ranks_info}",
-                    tab_number=DEBUG_TAB_NUMBER,
+                    tab_number=tab_num_value,
                     class_name="FileProcessor",
                     func_name="_calculate_best_month_variant3"
                 )
