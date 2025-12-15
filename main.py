@@ -2820,8 +2820,8 @@ class FileProcessor:
                             sample_tb = df_unique[tb_col].iloc[0] if tb_col in df_unique.columns else None
                             sample_fio = df_unique[fio_col].iloc[0] if fio_col in df_unique.columns else None
                             # ФИО будет замаскировано в _mask_sensitive_data
-            self.logger.debug(f"df_unique после merge для файла {file_name}: {len(df_unique)} строк. Пример: ТБ='{sample_tb}', fio: {sample_fio}", "FileProcessor", "collect_unique_tab_numbers")
-                else:
+                            self.logger.debug(f"df_unique после merge для файла {file_name}: {len(df_unique)} строк. Пример: ТБ='{sample_tb}', fio: {sample_fio}", "FileProcessor", "collect_unique_tab_numbers")
+                        else:
                     # Если нет колонки с показателем, используем старую логику
                     df_unique = df_normalized.drop_duplicates(subset=[tab_col], keep='first')
                     
@@ -3480,8 +3480,7 @@ class FileProcessor:
                 if len(result_df) > 0:
                     sample_tb = result_df["ТБ"].iloc[0] if "ТБ" in result_df.columns else None
                     sample_fio = result_df["ФИО"].iloc[0] if "ФИО" in result_df.columns else None
-                    # ФИО будет замаскировано в _mask_sensitive_data
-                    self.logger.debug(f"После drop_duplicates: ТБ='{sample_tb}', fio: {sample_fio}", "FileProcessor", "prepare_summary_data")
+                    self.logger.debug(f"После drop_duplicates: ТБ='{sample_tb}', ФИО='{sample_fio}'", "FileProcessor", "prepare_summary_data")
         
         # Упорядочиваем колонки: сначала базовые, потом по группам и месяцам
         self.logger.debug("Лист 'Данные': Упорядочивание колонок", "FileProcessor", "prepare_summary_data")
@@ -3510,14 +3509,14 @@ class FileProcessor:
             
             sample_tb = result_df["ТБ"].iloc[0] if "ТБ" in result_df.columns else None
             sample_fio = result_df["ФИО"].iloc[0] if "ФИО" in result_df.columns else None
-            self.logger.debug(f"Финальный summary_df: {len(result_df)} строк x {len(result_df.columns)} колонок. Пример первой строки: ТБ='{sample_tb}', ФИО='{sample_fio}'", "FileProcessor", "prepare_summary_data")
+            # ФИО будет замаскировано в _mask_sensitive_data
+            self.logger.debug(f"Финальный summary_df: {len(result_df)} строк x {len(result_df.columns)} колонок. Пример первой строки: ТБ='{sample_tb}', fio: {sample_fio}", "FileProcessor", "prepare_summary_data")
             
             # Проверяем, что не все значения пустые
             if "ТБ" in result_df.columns:
                 non_empty_tb = result_df["ТБ"].notna() & (result_df["ТБ"] != "")
                 non_empty_fio = result_df["ФИО"].notna() & (result_df["ФИО"] != "") if "ФИО" in result_df.columns else pd.Series([False] * len(result_df))
-                # ФИО будет замаскировано в _mask_sensitive_data
-                self.logger.debug(f"Финальная проверка заполненности: ТБ={non_empty_tb.sum()}/{len(result_df)}, fio заполнено={non_empty_fio.sum()}/{len(result_df)}", "FileProcessor", "prepare_summary_data")
+                self.logger.debug(f"Финальная проверка заполненности: ТБ={non_empty_tb.sum()}/{len(result_df)}, ФИО={non_empty_fio.sum()}/{len(result_df)}", "FileProcessor", "prepare_summary_data")
                 
                 if non_empty_tb.sum() == 0:
                     self.logger.warning(f"ВНИМАНИЕ: В summary_df все значения ТБ пустые!", "FileProcessor", "prepare_summary_data")
@@ -3635,7 +3634,8 @@ class FileProcessor:
         if len(calculated_df) > 0:
             sample_tb_before = calculated_df["ТБ"].iloc[0] if "ТБ" in calculated_df.columns else None
             sample_fio_before = calculated_df["ФИО"].iloc[0] if "ФИО" in calculated_df.columns else None
-            self.logger.debug(f"calculated_df сразу после копирования (ДО конвертации): ТБ='{sample_tb_before}', ФИО='{sample_fio_before}'", "FileProcessor", "prepare_calculated_data")
+            # ФИО будет замаскировано в _mask_sensitive_data
+            self.logger.debug(f"calculated_df сразу после копирования (ДО конвертации): ТБ='{sample_tb_before}', fio: {sample_fio_before}", "FileProcessor", "prepare_calculated_data")
         
         # ВАЖНО: Проверяем, что базовые колонки есть и не пустые в calculated_df
         if not all(col in calculated_df.columns for col in base_columns):
@@ -3658,12 +3658,14 @@ class FileProcessor:
         if len(calculated_df) > 0:
             sample_tb = calculated_df["ТБ"].iloc[0] if "ТБ" in calculated_df.columns else None
             sample_fio = calculated_df["ФИО"].iloc[0] if "ФИО" in calculated_df.columns else None
-            self.logger.debug(f"calculated_df создан из summary_df: {len(calculated_df)} строк x {len(calculated_df.columns)} колонок. Пример: ТБ='{sample_tb}', ФИО='{sample_fio}'", "FileProcessor", "prepare_calculated_data")
+            # ФИО будет замаскировано в _mask_sensitive_data
+            self.logger.debug(f"calculated_df создан из summary_df: {len(calculated_df)} строк x {len(calculated_df.columns)} колонок. Пример: ТБ='{sample_tb}', fio: {sample_fio}", "FileProcessor", "prepare_calculated_data")
             
             # Проверяем заполненность базовых колонок
             non_empty_tb = calculated_df["ТБ"].notna() & (calculated_df["ТБ"] != "") if "ТБ" in calculated_df.columns else pd.Series([False] * len(calculated_df))
             non_empty_fio = calculated_df["ФИО"].notna() & (calculated_df["ФИО"] != "") if "ФИО" in calculated_df.columns else pd.Series([False] * len(calculated_df))
-            self.logger.debug(f"Заполненность базовых колонок в calculated_df: ТБ={non_empty_tb.sum()}/{len(calculated_df)}, ФИО={non_empty_fio.sum()}/{len(calculated_df)}", "FileProcessor", "prepare_calculated_data")
+            # ФИО будет замаскировано в _mask_sensitive_data
+            self.logger.debug(f"Заполненность базовых колонок в calculated_df: ТБ={non_empty_tb.sum()}/{len(calculated_df)}, fio заполнено={non_empty_fio.sum()}/{len(calculated_df)}", "FileProcessor", "prepare_calculated_data")
         
         # Словарь для переименования колонок
         rename_dict = {}
@@ -3862,12 +3864,14 @@ class FileProcessor:
         if len(calculated_df) > 0:
             sample_tb = calculated_df["ТБ"].iloc[0] if "ТБ" in calculated_df.columns else None
             sample_fio = calculated_df["ФИО"].iloc[0] if "ФИО" in calculated_df.columns else None
-            self.logger.debug(f"calculated_df после переименования: {len(calculated_df)} строк x {len(calculated_df.columns)} колонок. Пример: ТБ='{sample_tb}', ФИО='{sample_fio}'", "FileProcessor", "prepare_calculated_data")
+            # ФИО будет замаскировано в _mask_sensitive_data
+            self.logger.debug(f"calculated_df после переименования: {len(calculated_df)} строк x {len(calculated_df.columns)} колонок. Пример: ТБ='{sample_tb}', fio: {sample_fio}", "FileProcessor", "prepare_calculated_data")
             
             # Проверяем заполненность базовых колонок после переименования
             non_empty_tb = calculated_df["ТБ"].notna() & (calculated_df["ТБ"] != "") if "ТБ" in calculated_df.columns else pd.Series([False] * len(calculated_df))
             non_empty_fio = calculated_df["ФИО"].notna() & (calculated_df["ФИО"] != "") if "ФИО" in calculated_df.columns else pd.Series([False] * len(calculated_df))
-            self.logger.debug(f"Заполненность базовых колонок после переименования: ТБ={non_empty_tb.sum()}/{len(calculated_df)}, ФИО={non_empty_fio.sum()}/{len(calculated_df)}", "FileProcessor", "prepare_calculated_data")
+            # ФИО будет замаскировано в _mask_sensitive_data
+            self.logger.debug(f"Заполненность базовых колонок после переименования: ТБ={non_empty_tb.sum()}/{len(calculated_df)}, fio заполнено={non_empty_fio.sum()}/{len(calculated_df)}", "FileProcessor", "prepare_calculated_data")
         
         # НЕ рассчитываем вертикальные ранги (убрано для варианта 3)
         # calculated_df = self._calculate_ranks(calculated_df, all_files_sorted, config_manager)
@@ -4047,12 +4051,14 @@ class FileProcessor:
         if len(normalized_df) > 0:
             sample_tb = normalized_df["ТБ"].iloc[0] if "ТБ" in normalized_df.columns else None
             sample_fio = normalized_df["ФИО"].iloc[0] if "ФИО" in normalized_df.columns else None
-            self.logger.debug(f"normalized_df создан: {len(normalized_df)} строк x {len(normalized_df.columns)} колонок. Пример: ТБ='{sample_tb}', ФИО='{sample_fio}'", "FileProcessor", "_normalize_indicators")
+            # ФИО будет замаскировано в _mask_sensitive_data
+            self.logger.debug(f"normalized_df создан: {len(normalized_df)} строк x {len(normalized_df.columns)} колонок. Пример: ТБ='{sample_tb}', fio: {sample_fio}", "FileProcessor", "_normalize_indicators")
             
             # Проверяем заполненность базовых колонок
             non_empty_tb = normalized_df["ТБ"].notna() & (normalized_df["ТБ"] != "") if "ТБ" in normalized_df.columns else pd.Series([False] * len(normalized_df))
             non_empty_fio = normalized_df["ФИО"].notna() & (normalized_df["ФИО"] != "") if "ФИО" in normalized_df.columns else pd.Series([False] * len(normalized_df))
-            self.logger.debug(f"Заполненность базовых колонок в normalized_df: ТБ={non_empty_tb.sum()}/{len(normalized_df)}, ФИО={non_empty_fio.sum()}/{len(normalized_df)}", "FileProcessor", "_normalize_indicators")
+            # ФИО будет замаскировано в _mask_sensitive_data
+            self.logger.debug(f"Заполненность базовых колонок в normalized_df: ТБ={non_empty_tb.sum()}/{len(normalized_df)}, fio заполнено={non_empty_fio.sum()}/{len(normalized_df)}", "FileProcessor", "_normalize_indicators")
         
         # Получаем направления для каждого показателя
         od_config = config_manager.get_group_config("OD").defaults if "OD" in config_manager.groups else None
@@ -4092,7 +4098,8 @@ class FileProcessor:
         if len(normalized_df) > 0:
             sample_tb = normalized_df["ТБ"].iloc[0] if "ТБ" in normalized_df.columns else None
             sample_fio = normalized_df["ФИО"].iloc[0] if "ФИО" in normalized_df.columns else None
-            self.logger.debug(f"normalized_df финальный: {len(normalized_df)} строк. Пример: ТБ='{sample_tb}', ФИО='{sample_fio}'", "FileProcessor", "_normalize_indicators")
+            # ФИО будет замаскировано в _mask_sensitive_data
+            self.logger.debug(f"normalized_df финальный: {len(normalized_df)} строк. Пример: ТБ='{sample_tb}', fio: {sample_fio}", "FileProcessor", "_normalize_indicators")
         
         self.logger.info(f"Нормализация завершена: {len(normalized_df)} строк, {len(normalized_df.columns)} колонок", "FileProcessor", "_normalize_indicators")
         return normalized_df
@@ -4298,12 +4305,14 @@ class FileProcessor:
         if len(places_df) > 0:
             sample_tb = places_df["ТБ"].iloc[0] if "ТБ" in places_df.columns else None
             sample_fio = places_df["ФИО"].iloc[0] if "ФИО" in places_df.columns else None
-            self.logger.debug(f"places_df создан: {len(places_df)} строк. Пример: ТБ='{sample_tb}', ФИО='{sample_fio}'", "FileProcessor", "_calculate_best_month_variant3")
+            # ФИО будет замаскировано в _mask_sensitive_data
+            self.logger.debug(f"places_df создан: {len(places_df)} строк. Пример: ТБ='{sample_tb}', fio: {sample_fio}", "FileProcessor", "_calculate_best_month_variant3")
         
         if len(final_df) > 0:
             sample_tb = final_df["ТБ"].iloc[0] if "ТБ" in final_df.columns else None
             sample_fio = final_df["ФИО"].iloc[0] if "ФИО" in final_df.columns else None
-            self.logger.debug(f"final_df создан: {len(final_df)} строк. Пример: ТБ='{sample_tb}', ФИО='{sample_fio}'", "FileProcessor", "_calculate_best_month_variant3")
+            # ФИО будет замаскировано в _mask_sensitive_data
+            self.logger.debug(f"final_df создан: {len(final_df)} строк. Пример: ТБ='{sample_tb}', fio: {sample_fio}", "FileProcessor", "_calculate_best_month_variant3")
         
         # ОПТИМИЗАЦИЯ: Параллельный расчет Score для всех месяцев
         self.logger.debug(f"Параллельный расчет Score для всех месяцев (max_workers={MAX_WORKERS})", "FileProcessor", "_calculate_best_month_variant3")
