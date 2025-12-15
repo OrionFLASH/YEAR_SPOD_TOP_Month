@@ -2821,7 +2821,7 @@ class FileProcessor:
                             sample_fio = df_unique[fio_col].iloc[0] if fio_col in df_unique.columns else None
                             # ФИО будет замаскировано в _mask_sensitive_data
                             self.logger.debug(f"df_unique после merge для файла {file_name}: {len(df_unique)} строк. Пример: ТБ='{sample_tb}', fio: {sample_fio}", "FileProcessor", "collect_unique_tab_numbers")
-                        else:
+                else:
                     # Если нет колонки с показателем, используем старую логику
                     df_unique = df_normalized.drop_duplicates(subset=[tab_col], keep='first')
                     
