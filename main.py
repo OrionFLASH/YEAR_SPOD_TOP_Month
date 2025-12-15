@@ -2630,6 +2630,7 @@ class FileProcessor:
             )
             
             # Логируем начало обработки группы
+            group_start_time = time_func()
             self.logger.info(f"Обработка группы {group}: {len(files_sorted)} файлов", "FileProcessor", "collect_unique_tab_numbers")
             
             for file_idx, (file_name, df) in enumerate(files_sorted, 1):
