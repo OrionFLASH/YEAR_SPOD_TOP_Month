@@ -988,16 +988,18 @@ class Logger:
             str: Текст с замаскированными табельными номерами
         """
         # Ищем табельные номера только после явных меток полей
-        # Паттерны: "tab_number: 12345678", "Табельный: 12345678", "ТН: 12345678", "tab_number='12345678'", и т.д.
+        # Паттерны: "tab_number: 12345678", "Табельный: 12345678", "ТН: 12345678", "табельного: 12345678", "для табельного: 12345678", "tab_number='12345678'", и т.д.
         # ВАЖНО: Используем \b для границ слов, чтобы не маскировать числа в других контекстах
         patterns = [
             # С кавычками
-            r"\b(tab_number|Табельный|ТН|tab_number_column)\b\s*[:=]\s*['\"](\d{8})['\"]",
+            r"\b(tab_number|Табельный|ТН|tab_number_column|табельного|табельный)\b\s*[:=]\s*['\"](\d{8})['\"]",
             # Без кавычек (требуем пробел или начало строки перед полем)
-            r"(?:^|\s)\b(tab_number|Табельный|ТН|tab_number_column)\b\s*[:=]\s*(\d{8})(?=\s|$|,|;|\.|\[|\]|\})",
+            r"(?:^|\s)\b(tab_number|Табельный|ТН|tab_number_column|табельного|табельный)\b\s*[:=]\s*(\d{8})(?=\s|$|,|;|\.|\[|\]|\})",
             # В словарях/структурах
             r"(['\"]tab_number['\"]|['\"]Табельный['\"]|['\"]ТН['\"])\s*:\s*['\"](\d{8})['\"]",
             r"(['\"]tab_number['\"]|['\"]Табельный['\"]|['\"]ТН['\"])\s*:\s*(\d{8})(?=\s|$|,|;|\.|\[|\]|\})",
+            # Формат "для табельного: 12345678" или "табельного: 12345678"
+            r"(?:для\s+)?(?:табельного|табельный)\s*[:=]\s*(\d{8})(?=\s|$|,|;|\.|\[|\]|\})",
         ]
         
         def mask_match(match):
@@ -2760,8 +2762,9 @@ class FileProcessor:
                         
                         # Логируем для диагностики
                         if self.logger._is_debug_tab_number(tab_num_str):
+                            # Табельный номер будет замаскирован в _mask_sensitive_data
                             self.logger.debug(
-                                f"Добавлены данные в трекер для табельного {tab_num_str} из файла {file_name}: "
+                                f"Добавлены данные в трекер для табельного: {tab_num_str} из файла {file_name}: "
                                 f"клиентов={len(clients_data)}, вариантов ТБ={len(tb_variants)}, выбран ТБ={selected_tb}",
                                 "FileProcessor",
                                 "collect_unique_tab_numbers"
@@ -2780,8 +2783,9 @@ class FileProcessor:
                             # Форматируем выбранную сумму с разделителем разрядов
                             selected_sum_formatted = self.logger._format_indicator(selected_sum)
                             
+                            # Табельный номер будет замаскирован в _mask_sensitive_data
                             self.logger.debug(
-                                f"В файле {file_name} для табельного {tab_num} найдено {len(tab_data)} вариантов ТБ: "
+                                f"В файле {file_name} для табельного: {tab_num} найдено {len(tab_data)} вариантов ТБ: "
                                 f"{', '.join(variants_list)}. "
                                 f"Выбран вариант: ТБ='{selected_tb}' с максимальной суммой показателя: {selected_sum_formatted}",
                                 "FileProcessor", "collect_unique_tab_numbers"
@@ -2908,7 +2912,8 @@ class FileProcessor:
                         
                         # РАСШИРЕННОЕ ЛОГИРОВАНИЕ: Логируем первые несколько записей с детальной информацией
                         if len(all_tab_data) < 5:
-                            self.logger.debug(f"Извлечение данных для табельного {tab_number}: tb_col_idx={tb_col_idx}, fio_col_idx={fio_col_idx}, len(row_tuple)={len(row_tuple)}, tb_val={tb_val}, fio_val={fio_val}", "FileProcessor", "collect_unique_tab_numbers")
+                            # Табельный номер будет замаскирован в _mask_sensitive_data
+                            self.logger.debug(f"Извлечение данных для табельного: {tab_number}, tb_col_idx={tb_col_idx}, fio_col_idx={fio_col_idx}, len(row_tuple)={len(row_tuple)}, tb_val={tb_val}, fio_val={fio_val}", "FileProcessor", "collect_unique_tab_numbers")
                         
                         # Преобразуем в строку с обработкой NaN и пустых значений
                         if tb_val is not None and pd.notna(tb_val):
@@ -2927,7 +2932,8 @@ class FileProcessor:
                         
                         # Логируем первые несколько записей для отладки
                         if len(all_tab_data) < 5:
-                            self.logger.debug(f"Добавлен табельный {tab_number}: ТБ='{tb_str}', ФИО='{fio_str}' (из файла {file_name})", "FileProcessor", "collect_unique_tab_numbers")
+                            # Табельный номер будет замаскирован в _mask_sensitive_data
+                            self.logger.debug(f"Добавлен табельный: {tab_number}, ТБ='{tb_str}', fio: {fio_str} (из файла {file_name})", "FileProcessor", "collect_unique_tab_numbers")
                         
                         all_tab_data[tab_number] = {
                             "tab_number": tab_number,
@@ -3431,12 +3437,13 @@ class FileProcessor:
             
             # РАСШИРЕННОЕ ЛОГИРОВАНИЕ: Логируем первые несколько записей и каждую 100-ю для отладки
             if processed_count <= 5 or processed_count % 100 == 0:
-                # ФИО будет замаскировано в _mask_sensitive_data
-                self.logger.debug(f"Подготовка строки для табельного {tab_number_formatted}: ТБ='{tb_value}', fio: {fio_value} (из tab_info: {list(tab_info.keys())}, значения: {tab_info})", "FileProcessor", "prepare_summary_data")
+                # Табельный номер и ФИО будут замаскированы в _mask_sensitive_data
+                self.logger.debug(f"Подготовка строки для табельного: {tab_number_formatted}, ТБ='{tb_value}', fio: {fio_value} (из tab_info: {list(tab_info.keys())}, значения: {tab_info})", "FileProcessor", "prepare_summary_data")
                 
                 # Проверяем, что значения не пустые
                 if not tb_value and not fio_value:
-                    self.logger.warning(f"ВНИМАНИЕ: Для табельного {tab_number_formatted} все значения (ТБ, ФИО) пустые! tab_info={tab_info}", "FileProcessor", "prepare_summary_data")
+                    # Табельный номер будет замаскирован в _mask_sensitive_data
+                    self.logger.warning(f"ВНИМАНИЕ: Для табельного: {tab_number_formatted} все значения (ТБ, ФИО) пустые! tab_info={tab_info}", "FileProcessor", "prepare_summary_data")
             
             row = {
                 "Табельный": tab_number_formatted,
@@ -5247,6 +5254,7 @@ class ExcelFormatter:
         self.logger.info(f"Создание детальных листов для {len(all_tab_numbers)} табельных номеров: {all_tab_numbers}", "ExcelFormatter", "_create_debug_tab_sheets")
         
         for tab_number in all_tab_numbers:
+            # Табельный номер будет замаскирован в _mask_sensitive_data
             self.logger.info(f"Обработка табельного номера: {tab_number} (тип: {type(tab_number)})", "ExcelFormatter", "_create_debug_tab_sheets")
             
             # Пробуем получить данные разными способами
@@ -5269,7 +5277,8 @@ class ExcelFormatter:
                     self.logger.info(f"Найдены данные по оригинальному ключу: {tab_num_str}", "ExcelFormatter", "_create_debug_tab_sheets")
                 else:
                     self.logger.error(
-                        f"Нет данных для табельного номера {tab_number} в debug_tracker. "
+                        # Табельный номер будет замаскирован в _mask_sensitive_data
+                        f"Нет данных для табельного номера: {tab_number} в debug_tracker. "
                         f"Доступные ключи: {list(debug_tracker.tab_data.keys())}. "
                         f"Пробовали: нормализованный={tab_num_normalized}, оригинальный={tab_num_str}",
                         "ExcelFormatter",
@@ -5474,11 +5483,13 @@ class ExcelFormatter:
                 self.logger.info(f"Сохранение листа {sheet_name} с {len(debug_df)} строками и {len(debug_df.columns)} колонками", "ExcelFormatter", "_create_debug_tab_sheets")
                 try:
                     debug_df.to_excel(writer, sheet_name=sheet_name, index=False, header=False)
-                    self.logger.info(f"Лист {sheet_name} успешно создан для табельного номера {tab_number}", "ExcelFormatter", "_create_debug_tab_sheets")
+                    # Табельный номер будет замаскирован в _mask_sensitive_data
+                    self.logger.info(f"Лист {sheet_name} успешно создан для табельного номера: {tab_number}", "ExcelFormatter", "_create_debug_tab_sheets")
                 except Exception as e:
                     self.logger.error(f"Ошибка при сохранении листа {sheet_name}: {str(e)}", "ExcelFormatter", "_create_debug_tab_sheets", exc_info=True)
             else:
-                self.logger.warning(f"Нет строк для создания листа {sheet_name} для табельного номера {tab_number}", "ExcelFormatter", "_create_debug_tab_sheets")
+                # Табельный номер будет замаскирован в _mask_sensitive_data
+                self.logger.warning(f"Нет строк для создания листа {sheet_name} для табельного номера: {tab_number}", "ExcelFormatter", "_create_debug_tab_sheets")
         
         self.logger.info("=== ЗАВЕРШЕНО СОЗДАНИЕ ДЕТАЛЬНЫХ ЛИСТОВ ===", "ExcelFormatter", "_create_debug_tab_sheets")
     
