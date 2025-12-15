@@ -1691,6 +1691,7 @@ class FileProcessor:
         if DEBUG_TAB_NUMBER and len(DEBUG_TAB_NUMBER) > 0:
             tab_numbers_str = ", ".join(DEBUG_TAB_NUMBER)
             self.logger.info(
+                # Табельные номера в строке будут замаскированы в _mask_sensitive_data
                 f"Включено детальное логирование для табельных номеров: {tab_numbers_str}. "
                 f"Все операции с этими табельными номерами будут подробно логироваться.",
                 "FileProcessor",
@@ -5249,13 +5250,17 @@ class ExcelFormatter:
         # Табельные номера в списке будут замаскированы при выводе каждого элемента, но сам список не маскируется
         # Логируем только количество, без вывода самих номеров
         self.logger.info(f"Получены табельные номера из трекера: всего {len(all_tab_numbers)}", "ExcelFormatter", "_create_debug_tab_sheets")
-        self.logger.info(f"Все ключи в tab_data: {list(debug_tracker.tab_data.keys())}", "ExcelFormatter", "_create_debug_tab_sheets")
+        # Ключи табельных номеров в списке будут замаскированы при выводе каждого элемента
+        # Логируем только количество, без вывода самих ключей
+        self.logger.info(f"Всего ключей в tab_data: {len(debug_tracker.tab_data)}", "ExcelFormatter", "_create_debug_tab_sheets")
         
         if len(all_tab_numbers) == 0:
             self.logger.error("В debug_tracker нет табельных номеров для создания детальных листов. Проверьте, что DEBUG_TAB_NUMBER указан и данные собираются в трекер.", "ExcelFormatter", "_create_debug_tab_sheets")
             return
         
-        self.logger.info(f"Создание детальных листов для {len(all_tab_numbers)} табельных номеров: {all_tab_numbers}", "ExcelFormatter", "_create_debug_tab_sheets")
+        # Табельные номера в списке будут замаскированы при выводе каждого элемента, но сам список не маскируется
+        # Логируем только количество, без вывода самих номеров
+        self.logger.info(f"Создание детальных листов для {len(all_tab_numbers)} табельных номеров", "ExcelFormatter", "_create_debug_tab_sheets")
         
         for tab_number in all_tab_numbers:
             # Табельный номер будет замаскирован в _mask_sensitive_data
@@ -5284,9 +5289,10 @@ class ExcelFormatter:
                 else:
                     self.logger.error(
                         # Табельный номер будет замаскирован в _mask_sensitive_data
+                        # Табельные номера будут замаскированы в _mask_sensitive_data
                         f"Нет данных для табельного номера: {tab_number} в debug_tracker. "
-                        f"Доступные ключи: {list(debug_tracker.tab_data.keys())}. "
-                        f"Пробовали: нормализованный={tab_num_normalized}, оригинальный={tab_num_str}",
+                        f"Доступно ключей: {len(debug_tracker.tab_data)}. "
+                        f"Пробовали: нормализованный ключ табельного номера: {tab_num_normalized}, оригинальный ключ табельного номера: {tab_num_str}",
                         "ExcelFormatter",
                         "_create_debug_tab_sheets"
                     )
@@ -5606,7 +5612,9 @@ class ExcelFormatter:
                 self.logger.info(f"Проверка создания детальных листов: debug_tracker={debug_tracker is not None}", "ExcelFormatter", "_create_with_openpyxl")
                 if debug_tracker:
                     tab_numbers = debug_tracker.get_all_tab_numbers()
-                    self.logger.info(f"Табельные номера в трекере: {tab_numbers} (всего {len(tab_numbers)})", "ExcelFormatter", "_create_with_openpyxl")
+                    # Табельные номера в списке будут замаскированы при выводе каждого элемента, но сам список не маскируется
+                    # Логируем только количество, без вывода самих номеров
+                    self.logger.info(f"Табельные номера в трекере: всего {len(tab_numbers)}", "ExcelFormatter", "_create_with_openpyxl")
                     if len(tab_numbers) > 0:
                         try:
                             self.logger.info("Вызов _create_debug_tab_sheets...", "ExcelFormatter", "_create_with_openpyxl")
@@ -6198,7 +6206,9 @@ def main():
     debug_tab_str = str(DEBUG_TAB_NUMBER) if DEBUG_TAB_NUMBER else "None"
     logger.info(f"DEBUG_TAB_NUMBER = {debug_tab_str} - Список табельных номеров для детального логирования (например, ['12345678', '87654321'] или None для отключения)", "main", "main")
     if DEBUG_TAB_NUMBER and len(DEBUG_TAB_NUMBER) > 0:
-        logger.info(f"  Детальное логирование включено для табельных номеров: {', '.join(DEBUG_TAB_NUMBER)}", "main", "main")
+            # Табельные номера в списке будут замаскированы при выводе каждого элемента
+            # Логируем только количество, без вывода самих номеров
+            logger.info(f"  Детальное логирование включено для {len(DEBUG_TAB_NUMBER)} табельных номеров", "main", "main")
     else:
         logger.info(f"  Детальное логирование отключено", "main", "main")
     
