@@ -5288,10 +5288,8 @@ class ExcelFormatter:
                     # Табельный номер будет замаскирован в _mask_sensitive_data
                     self.logger.info(f"Найдены данные по оригинальному ключу табельного номера: {tab_num_str}", "ExcelFormatter", "_create_debug_tab_sheets")
                 else:
+                    # Табельные номера будут замаскированы в _mask_sensitive_data
                     self.logger.error(
-                        # Табельный номер будет замаскирован в _mask_sensitive_data
-                        # Табельные номера будут замаскированы в _mask_sensitive_data
-                        # Табельные номера будут замаскированы в _mask_sensitive_data
                         f"Нет данных для табельного номера: {tab_number} в debug_tracker. "
                         f"Доступно ключей: {len(debug_tracker.tab_data)}. "
                         f"Пробовали: нормализованный ключ табельного номера: {tab_num_normalized}, оригинальный ключ табельного номера: {tab_num_str}",
