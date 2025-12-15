@@ -4246,6 +4246,10 @@ class FileProcessor:
                     import traceback
                     self.logger.error(f"Трассировка ошибки: {traceback.format_exc()}", "FileProcessor", "_normalize_indicators")
         
+        # ВАЖНО: Проверяем нормализованные колонки ПЕРЕД reset_index
+        norm_cols_before_reset = [col for col in normalized_df.columns if col not in base_columns]
+        self.logger.debug(f"Нормализованные колонки ПЕРЕД reset_index: {len(norm_cols_before_reset)} колонок. Первые 10: {norm_cols_before_reset[:10]}", "FileProcessor", "_normalize_indicators")
+        
         # ВАЖНО: Сбрасываем индекс только в конце, после всех присваиваний
         normalized_df = normalized_df.reset_index(drop=True)
         
@@ -4259,9 +4263,9 @@ class FileProcessor:
             # ВАЖНО: Проверяем, что нормализованные колонки добавлены
             norm_cols = [col for col in normalized_df.columns if col not in base_columns]
             if norm_cols:
-                self.logger.debug(f"Нормализованные колонки в normalized_df: {len(norm_cols)} колонок. Первые 10: {norm_cols[:10]}", "FileProcessor", "_normalize_indicators")
+                self.logger.debug(f"Нормализованные колонки в normalized_df ПОСЛЕ reset_index: {len(norm_cols)} колонок. Первые 10: {norm_cols[:10]}", "FileProcessor", "_normalize_indicators")
             else:
-                self.logger.error(f"КРИТИЧЕСКАЯ ОШИБКА: В normalized_df нет нормализованных колонок! Только базовые: {list(normalized_df.columns)}", "FileProcessor", "_normalize_indicators")
+                self.logger.error(f"КРИТИЧЕСКАЯ ОШИБКА: В normalized_df нет нормализованных колонок ПОСЛЕ reset_index! Только базовые: {list(normalized_df.columns)}. До reset_index было: {len(norm_cols_before_reset)} колонок", "FileProcessor", "_normalize_indicators")
         
         self.logger.info(f"Нормализация завершена: {len(normalized_df)} строк, {len(normalized_df.columns)} колонок", "FileProcessor", "_normalize_indicators")
         return normalized_df
