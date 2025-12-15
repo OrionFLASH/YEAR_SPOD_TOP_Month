@@ -5285,10 +5285,12 @@ class ExcelFormatter:
                     self.logger.info(f"Найдены данные по нормализованному ключу табельного номера: {tab_num_normalized}", "ExcelFormatter", "_create_debug_tab_sheets")
                 elif tab_num_str in debug_tracker.tab_data:
                     tab_data = debug_tracker.tab_data[tab_num_str]
-                    self.logger.info(f"Найдены данные по оригинальному ключу: {tab_num_str}", "ExcelFormatter", "_create_debug_tab_sheets")
+                    # Табельный номер будет замаскирован в _mask_sensitive_data
+                    self.logger.info(f"Найдены данные по оригинальному ключу табельного номера: {tab_num_str}", "ExcelFormatter", "_create_debug_tab_sheets")
                 else:
                     self.logger.error(
                         # Табельный номер будет замаскирован в _mask_sensitive_data
+                        # Табельные номера будут замаскированы в _mask_sensitive_data
                         # Табельные номера будут замаскированы в _mask_sensitive_data
                         f"Нет данных для табельного номера: {tab_number} в debug_tracker. "
                         f"Доступно ключей: {len(debug_tracker.tab_data)}. "
